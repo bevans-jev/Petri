@@ -1,0 +1,837 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"/>
+<title>PETRI</title>
+<style>html,body{margin:0;padding:0;background:#0c0e12;min-height:100%}</style>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+const {useState,useMemo,useRef,useEffect,useCallback}=React;
+
+/* ============================================================================
+   PETRI, claim the dish. Touch your own color only at the corners (diagonals),
+   never along an edge. First piece covers your start. Most squares wins.
+   Board size comes straight from the board array (no globals).
+
+   FILE LAYOUT (top to bottom):
+     1. FACTIONS, TRAITS, POWERS, AI BRAINS .... game content/config tables
+     2. MAPS ................................... symmetric board layouts
+     3. PIECES & GEOMETRY ..................... polyominoes + transform helpers
+     4. RULES ENGINE .......................... valid / anyMove / corner logic
+     5. CPU AI ................................ cpuMove scoring + lookahead
+     6. EVENTS ................................ meteor / quake / bloom / infection
+     7. POWERS & SPECIAL TILES (engine) ....... shared board helpers, resolution
+     8. THEME & UI TOKENS ..................... palettes + style objects
+     9. SHARED UI COMPONENTS .................. Shell / Pedia / previews
+    10. APP .................................... state, handlers, render
+
+   SECURITY POSTURE (client-only game, audited):
+     - No network, storage, cookies, secrets, or auth: nothing to exfiltrate.
+     - No code-execution sinks: no eval/Function, no innerHTML, no document.write.
+       Every setTimeout takes a function ref (never a string).
+     - The only inputs are fixed <select> dropdowns; their values are whitelisted
+       in `upd` before touching state, so unknown ids can never crash a lookup.
+     - Lookups degrade instead of crashing: buildMap falls back to "open" on an
+       unknown map id, civOf tolerates bad seat indices, and targetClick bounds-
+       checks coordinates before reading the board.
+     - All rules/content/theme tables are Object.frozen (no runtime mutation),
+       and every board mutation happens on a cloneB copy, never live state.
+     - The turn loop is fully bounded and wrapped: cpuTurn/advance always hand the
+       turn off even on error, so the game can never hang or spin.
+   ========================================================================== */
+
+// ===== 1. FACTIONS, TRAITS, POWERS, AI BRAINS =================================
+const GLYPHS = ["●","▲","■","◆"];
+const cornersFor = N => [[0,0],[N-1,N-1],[0,N-1],[N-1,0]];
+
+const CIVS = {
+  kyrgyzstan:{name:"Kyrgyzstan",region:"Asia",color:"#D8472E"},
+  botswana:{name:"Botswana",region:"Africa",color:"#1F9E8F"},
+  lithuania:{name:"Lithuania",region:"Europe",color:"#E0A92E"},
+  guatemala:{name:"Guatemala",region:"C. America",color:"#2E9E5B"},
+  colombia:{name:"Colombia",region:"S. America",color:"#2E6FB0"},
+  tonga:{name:"Tonga",region:"Oceania",color:"#A0498F"},
+  malta:{name:"Malta",region:"Mediterranean",color:"#CF7A3A"},
+  dominican:{name:"Dominican Republic",region:"Caribbean",color:"#C8516E"},
+  jamaica:{name:"Senegal",region:"West Africa",color:"#9DB833"},
+};
+const CIV_IDS = Object.keys(CIVS);
+const TRAIT = {
+  kyrgyzstan:["Spore Burst","its Teleport tiles spawn 2 squares, not 1"], botswana:["Bomb Shield","Bomb tiles never remove its squares"],
+  lithuania:["Outpost","plants 1 extra square out toward mid-board at the start"], guatemala:["Late Bloomer","can use its power far later into the game than anyone else"],
+  colombia:["Stockpile","gets one extra power charge"], tonga:["Big Bonus","+1 point for every 5-square piece it places"],
+  malta:["Bastion","Wall tiles can never turn its squares into walls"],
+  dominican:["Cash Crop","scores 1 bonus point for every 4 pieces it places"],
+  jamaica:["Long Coast","scores 1 bonus point for every long, stretched piece it places (4 or more cells in a straight line)"],
+};
+
+/* powers (mainstream names, plain effects) */
+const POWERS = {
+  seed:{name:"Seed",charges:1,target:"empty",picks:1,trigger:"tap, then click an empty square",effect:"Adds 1 square of your color there."},
+  block:{name:"Block",charges:1,target:"empty",picks:1,trigger:"tap, then click an empty square",effect:"Turns that square into a wall."},
+  clear:{name:"Clear",charges:1,target:"own",picks:1,trigger:"tap, then click one of your squares",effect:"Removes that square to open a corner."},
+  bridge:{name:"Bridge",charges:1,target:"arm",picks:0,trigger:"tap, then place a piece",effect:"That piece may touch your color edge to edge."},
+  graft:{name:"Graft",charges:1,target:"enemy",picks:1,trigger:"tap, then click a rival square next to yours",effect:"Steals one rival square that touches your color, turning it into yours."},
+  spore:{name:"Spore",charges:1,target:"auto",picks:0,trigger:"tap to sprout",effect:"Instantly sprouts 2 new squares on open corners of your colony."},
+  blight:{name:"Blight",charges:1,target:"enemyAny",picks:1,trigger:"tap, then click any rival square",effect:"Removes one rival square anywhere on the board."},
+};
+const POWER_IDS = Object.keys(POWERS);
+
+// Only the three strongest brains spend power charges; Easy/Medium ignore them.
+const POWER_BRAINS=new Set(["hard","expert","petri"]);
+const CPU_BRAINS = {
+  easy:{name:"Easy",blurb:"Plays loose, close to random."},
+  normal:{name:"Medium",blurb:"Grabs the biggest shapes it can fit."},
+  hard:{name:"Defensive",blurb:"Fortifies its own territory and holds the line. Solid, but plays it safe."},
+  expert:{name:"Aggressive",blurb:"Drives deep into rival ground and chokes their corners shut."},
+  petri:{name:"Petri",blurb:"The complete player. Spreads efficiently, denies rivals, and uses its powers well. Wins the most."},
+};
+
+const TILE = {
+  teleport:{mk:"◎",col:"#7fd0db",name:"Teleport",when:"When you cover it",then:"1 free square of your color appears on a random empty spot somewhere else."},
+  wall:{mk:"▦",col:"#cbb48a",name:"Wall",when:"When you cover it",then:"up to 3 empty squares beside it become walls (blocked for everyone)."},
+  bomb:{mk:"✷",col:"#d98a82",name:"Bomb",when:"When you cover it",then:"every enemy square in the 8 cells around it is removed."},
+};
+
+// ===== 2. MAPS ==============================================================
+const FP=(r,c,N)=>[[r,c],[c,N-1-r],[N-1-r,N-1-c],[N-1-c,r]];
+const addSym=(s,r,c,N)=>FP(r,c,N).forEach(([a,b])=>s.add(a+","+b));
+const addSymMap=(m,r,c,v,N)=>FP(r,c,N).forEach(([a,b])=>m.set(a+","+b,v));
+
+const MAPS = {
+  open:{name:"Open Range",tag:"20×20 · open",build:()=>{const N=20;return{N,walls:new Set(),specials:new Map(),voids:new Set(),starts:cornersFor(N)};}},
+  cage:{name:"The Cage",tag:"20×20 · walls",build:()=>{const N=20,w=new Set();[[7,4],[7,5],[7,6],[4,7],[5,7],[6,7]].forEach(([r,c])=>addSym(w,r,c,N));addSym(w,9,9,N);return{N,walls:w,specials:new Map(),voids:new Set(),starts:cornersFor(N)};}},
+  relay:{name:"Tile Yard",tag:"20×20 · tiles",build:()=>{const N=20,s=new Map();addSymMap(s,3,9,"teleport",N);addSymMap(s,6,6,"bomb",N);addSymMap(s,9,3,"wall",N);return{N,walls:new Set(),specials:s,voids:new Set(),starts:cornersFor(N)};}},
+  reset:{name:"Hard Reset",tag:"20×20 · walls + tiles",build:()=>{const N=20,w=new Set();[[8,5],[5,8]].forEach(([r,c])=>addSym(w,r,c,N));addSym(w,9,9,N);const s=new Map();addSymMap(s,4,9,"teleport",N);addSymMap(s,8,8,"bomb",N);return{N,walls:w,specials:s,voids:new Set(),starts:cornersFor(N)};}},
+  dish:{name:"The Dish",tag:"26×26 · round dish",build:()=>{const N=26,v=new Set(),ctr=(N-1)/2,R=11.9;for(let r=0;r<N;r++)for(let c=0;c<N;c++)if(Math.hypot(r-ctr,c-ctr)>R)v.add(r+","+c);const m=Math.round(ctr);let t=0;while(v.has(t+","+m))t++;let b=N-1;while(v.has(b+","+m))b--;let l=0;while(v.has(m+","+l))l++;let rt=N-1;while(v.has(m+","+rt))rt--;const s=new Map();addSymMap(s,8,8,"teleport",N);return{N,walls:new Set(),specials:s,voids:v,starts:[[t,m],[b,m],[m,l],[m,rt]]};}},
+  honeycomb:{name:"Honeycomb",tag:"22×22 · walls + tiles",build:()=>{const N=22,w=new Set();[[4,4],[4,5],[5,4],[9,9],[9,10],[10,9]].forEach(([r,c])=>addSym(w,r,c,N));const s=new Map();addSymMap(s,7,3,"wall",N);addSymMap(s,3,7,"teleport",N);return{N,walls:w,specials:s,voids:new Set(),starts:cornersFor(N)};}},
+  crossroads:{name:"Crossroads",tag:"24×24 · plus shaped · tiles",build:()=>{const N=24,B=6,v=new Set();for(let r=0;r<N;r++)for(let c=0;c<N;c++){const band=(r>=B&&r<=N-1-B)||(c>=B&&c<=N-1-B);if(!band)v.add(r+","+c);}const m=11;const s=new Map();addSymMap(s,m,m,"bomb",N);addSymMap(s,B,m,"teleport",N);return{N,walls:new Set(),specials:s,voids:v,starts:[[0,m],[N-1,N-1-m],[m,0],[N-1-m,N-1]]};}},
+  metropolis:{name:"Metropolis",tag:"MEGA 28×28 · city blocks · 2× pieces",mega:true,build:()=>{const N=28,w=new Set();
+    for(let r=4;r<N/2;r+=5)for(let c=4;c<N/2;c+=5)for(let dr=0;dr<2;dr++)for(let dc=0;dc<2;dc++)addSym(w,r+dr,c+dc,N);
+    const s=new Map();addSymMap(s,7,2,"teleport",N);addSymMap(s,2,7,"bomb",N);addSymMap(s,11,11,"wall",N);
+    return{N,walls:w,specials:s,voids:new Set(),starts:cornersFor(N),copies:2};}},
+  sprawl:{name:"The Sprawl",tag:"MEGA 30×30 · open frontier · 2× pieces",mega:true,build:()=>{const N=30,w=new Set();
+    [[8,8],[6,14],[14,6]].forEach(([r,c])=>{addSym(w,r,c,N);for(const [dr,dc] of [[1,0],[-1,0],[0,1],[0,-1]])addSym(w,r+dr,c+dc,N);});
+    const s=new Map();addSymMap(s,5,5,"teleport",N);addSymMap(s,11,11,"bomb",N);addSymMap(s,5,12,"wall",N);
+    return{N,walls:w,specials:s,voids:new Set(),starts:cornersFor(N),copies:2};}},
+  citadel:{name:"The Citadel",tag:"MEGA 32×32 · walled keep · 2× pieces",mega:true,build:()=>{const N=32,w=new Set();const A=8,B=23;
+    for(let c=A;c<=B;c++){if(!(c>=14&&c<=17)){w.add(A+","+c);w.add(B+","+c);}}
+    for(let r=A;r<=B;r++){if(!(r>=14&&r<=17)){w.add(r+","+A);w.add(r+","+B);}}
+    [[15,15],[15,16],[16,15],[16,16]].forEach(([r,c])=>w.add(r+","+c));
+    for(let k=0;k<4;k++)addSym(w,4+k,4+k,N);
+    for(let k=0;k<3;k++)addSym(w,5+k,12-k,N);
+    const s=new Map();addSymMap(s,11,15,"bomb",N);addSymMap(s,7,7,"teleport",N);addSymMap(s,3,11,"wall",N);
+    return{N,walls:w,specials:s,voids:new Set(),starts:cornersFor(N),copies:2};}},
+  crucible:{name:"The Crucible",tag:"MEGA 34×34 · tile storm · 2× pieces",mega:true,build:()=>{const N=34,w=new Set();
+    for(let k=0;k<3;k++)addSym(w,8+k,8,N);
+    const s=new Map();
+    addSymMap(s,5,5,"teleport",N);addSymMap(s,5,12,"bomb",N);addSymMap(s,12,5,"bomb",N);
+    addSymMap(s,9,9,"teleport",N);addSymMap(s,3,15,"wall",N);addSymMap(s,15,3,"wall",N);
+    addSymMap(s,7,14,"teleport",N);addSymMap(s,14,7,"bomb",N);addSymMap(s,11,11,"teleport",N);
+    addSymMap(s,16,16,"bomb",N);addSymMap(s,13,13,"wall",N);
+    return{N,walls:w,specials:s,voids:new Set(),starts:cornersFor(N),copies:2};}},
+};
+const MAP_IDS = Object.keys(MAPS);
+
+// ===== 3. PIECES & GEOMETRY =================================================
+const PIECES={mono:[[0,0]],domino:[[0,0],[0,1]],tromI:[[0,0],[0,1],[0,2]],tromL:[[0,0],[0,1],[1,0]],
+  tetI:[[0,0],[0,1],[0,2],[0,3]],tetO:[[0,0],[0,1],[1,0],[1,1]],tetT:[[0,0],[0,1],[0,2],[1,1]],tetL:[[0,0],[0,1],[0,2],[1,2]],tetS:[[0,1],[0,2],[1,0],[1,1]],
+  pentF:[[0,1],[0,2],[1,0],[1,1],[2,1]],pentI:[[0,0],[0,1],[0,2],[0,3],[0,4]],pentL:[[0,0],[1,0],[2,0],[3,0],[3,1]],pentN:[[0,1],[1,1],[2,1],[2,0],[3,0]],pentP:[[0,0],[0,1],[1,0],[1,1],[2,0]],
+  pentT:[[0,0],[0,1],[0,2],[1,1],[2,1]],pentU:[[0,0],[0,2],[1,0],[1,1],[1,2]],pentV:[[0,0],[1,0],[2,0],[2,1],[2,2]],pentW:[[0,0],[1,0],[1,1],[2,1],[2,2]],pentX:[[0,1],[1,0],[1,1],[1,2],[2,1]],pentY:[[0,1],[1,0],[1,1],[2,1],[3,1]],pentZ:[[0,0],[0,1],[1,1],[2,1],[2,2]]};
+const PIECE_IDS=Object.keys(PIECES); const PSIZE=Object.fromEntries(PIECE_IDS.map(id=>[id,PIECES[id].length]));
+const PLONG=new Set(PIECE_IDS.filter(id=>{const cs=PIECES[id],byR={},byC={};for(const [r,c] of cs){(byR[r]=byR[r]||[]).push(c);(byC[c]=byC[c]||[]).push(r);}
+  const run=a=>{a.sort((x,y)=>x-y);let best=1,cur=1;for(let i=1;i<a.length;i++){if(a[i]===a[i-1]+1){cur++;if(cur>best)best=cur;}else cur=1;}return best;};
+  let m=1;for(const k in byR)m=Math.max(m,run(byR[k]));for(const k in byC)m=Math.max(m,run(byC[k]));return m>=4;}));
+const PICTURE=Object.fromEntries(PIECE_IDS.map(id=>{const cs=PIECES[id];const r=Math.max(...cs.map(c=>c[0]))+1,c=Math.max(...cs.map(c=>c[1]))+1;return[id,{r,c,on:Array.from({length:r*c},(_,i)=>cs.some(([a,b])=>a===Math.floor(i/c)&&b===i%c))}];}));
+
+const norm=cs=>{const mr=Math.min(...cs.map(c=>c[0])),mc=Math.min(...cs.map(c=>c[1]));return cs.map(([r,c])=>[r-mr,c-mc]);};
+const rot=cs=>norm(cs.map(([r,c])=>[c,-r])); const flp=cs=>norm(cs.map(([r,c])=>[r,-c]));
+const keyf=cs=>norm(cs).map(c=>c.join(",")).sort().join("|");
+function orients(cs){const seen=new Set(),out=[];let cur=norm(cs);for(let f=0;f<2;f++){for(let r=0;r<4;r++){const k=keyf(cur);if(!seen.has(k)){seen.add(k);out.push(cur);}cur=rot(cur);}cur=flp(cur);}return out;}
+const place=(cs,ar,ac)=>cs.map(([r,c])=>[r+ar,c+ac]);
+const inB=(r,c,N)=>r>=0&&r<N&&c>=0&&c<N;
+const ORTH=[[-1,0],[1,0],[0,-1],[0,1]],DIAG=[[-1,-1],[-1,1],[1,-1],[1,1]];
+// Deep-copy a board (rows are arrays of numbers). Every mutation works on a copy,
+// never the live state object, so React state stays immutable.
+const cloneB=bd=>bd.map(row=>row.slice());
+
+// ===== 4. RULES ENGINE =====================================================
+// THE core rule. A placement is legal iff: every cell is empty and in bounds;
+// no cell touches own color edge to edge (unless Bridge armed); and either it
+// covers the start (first piece) or touches own color at a corner.
+function valid(board,cells,seat,first,start,allowEdge){const N=board.length;
+  for(const [r,c] of cells){if(!inB(r,c,N)||board[r][c]!==0)return false;}
+  if(first)return cells.some(([r,c])=>r===start[0]&&c===start[1]);
+  if(allowEdge){for(const [r,c] of cells)for(const [dr,dc] of [...ORTH,...DIAG]){const a=r+dr,b=c+dc;if(inB(a,b,N)&&board[a][b]===seat)return true;}return false;}
+  for(const [r,c] of cells)for(const [dr,dc] of ORTH){const a=r+dr,b=c+dc;if(inB(a,b,N)&&board[a][b]===seat)return false;}
+  for(const [r,c] of cells)for(const [dr,dc] of DIAG){const a=r+dr,b=c+dc;if(inB(a,b,N)&&board[a][b]===seat)return true;}
+  return false;}
+// Can this seat place anything at all? Tries smallest pieces first and exits
+// on the first hit, so "you are out" checks stay fast even on mega boards.
+function anyMove(board,used,seat,first,start,copies){copies=copies||1;const N=board.length;
+  const ids=PIECE_IDS.filter(id=>(used[id]||0)<copies).sort((a,b)=>PSIZE[a]-PSIZE[b]);
+  for(const id of ids)for(const o of orients(PIECES[id])){const mR=Math.max(...o.map(c=>c[0])),mC=Math.max(...o.map(c=>c[1]));
+    for(let ar=0;ar<=N-1-mR;ar++)for(let ac=0;ac<=N-1-mC;ac++)if(valid(board,place(o,ar,ac),seat,first,start))return true;}
+  return false;}
+// Every open growth corner belonging to opponents. Used to measure denial:
+// how many of these a candidate move would erase.
+function oppCornerSet(board,seat){const N=board.length,set=new Set();
+  for(let r=0;r<N;r++)for(let c=0;c<N;c++){if(board[r][c]!==0)continue;let d=false,e=false;
+    for(const [dr,dc] of DIAG){const a=r+dr,b=c+dc;if(inB(a,b,N)&&board[a][b]>0&&board[a][b]!==seat)d=true;}
+    for(const [dr,dc] of ORTH){const a=r+dr,b=c+dc;if(inB(a,b,N)&&board[a][b]>0&&board[a][b]!==seat)e=true;}
+    if(d&&!e)set.add(r+","+c);}return set;}
+
+// ===== 5. CPU AI ===========================================================
+// Pick a move for a CPU seat. Scores every legal placement on size, future
+// corners (nc), enemy contact (ct), denial (deny), reach and frontier, with
+// per-brain weights, then runs a small lookahead over the top candidates.
+function cpuMove(board,used,seat,first,start,brain,copies,edge){copies=copies||1;const N=board.length,H=N/2;
+  const top=start[0]<H,left=start[1]<H,remaining=PIECE_IDS.filter(id=>(used[id]||0)<copies);
+  const ids=[...remaining].sort((a,b)=>PSIZE[b]-PSIZE[a]);
+  const hints=(brain==="expert"||brain==="petri")?oppCornerSet(board,seat):null,late=remaining.length<=6;
+  const cand=[];let ck=0,cap=brain==="petri"?320:200;
+  for(const id of ids){if(cand.length>cap)break;
+    for(const o of orients(PIECES[id])){const mR=Math.max(...o.map(c=>c[0])),mC=Math.max(...o.map(c=>c[1]));
+      for(let ar=0;ar<=N-1-mR;ar++)for(let ac=0;ac<=N-1-mC;ac++){if(ck++>240000)break;
+        const cells=place(o,ar,ac);if(!valid(board,cells,seat,first,start,edge))continue;
+        let nc=0,ct=0,own=0,reach=0,deny=0,front=0;
+        for(const [r,c] of cells){reach=Math.max(reach,Math.max(Math.abs(r-start[0]),Math.abs(c-start[1])));
+          if((r<H)===top&&(c<H)===left)own++;if(hints&&hints.has(r+","+c))deny++;
+          front+=Math.max(0,8-Math.min(Math.abs(r-H),Math.abs(c-H)));
+          for(const [dr,dc] of DIAG){const a=r+dr,b=c+dc;if(inB(a,b,N)){const v=board[a][b];if(v===0)nc++;else if(v>0&&v!==seat)ct++;}}}
+        const sz=o.length,of_=own/sz,fr=front/sz,rnd=Math.random();let s;
+        if(brain==="easy")s=rnd*10+sz*0.2;
+        else if(brain==="normal")s=sz*8+nc*1+rnd*2;
+        else if(brain==="hard")s=late?sz*12+nc*6+deny*2+rnd:sz*10+nc*6+deny*3+fr*0.8+rnd;
+        else if(brain==="expert")s=late?sz*13+nc*5+ct*5+rnd:sz*10+nc*7+ct*5+deny*4+reach*1.0+rnd;
+        else s=late?sz*15+nc*7+deny*4+rnd:sz*10+nc*8+ct*3+deny*6+reach*0.5+rnd;
+        cand.push({id,cells,score:s});}}}
+  if(!cand.length)return null;cand.sort((a,b)=>b.score-a.score);
+  const LK={hard:{d:10,fw:2.2,ow:0.5},expert:{d:14,fw:2.0,ow:0.8},petri:{d:18,fw:3.0,ow:1.0}};
+  const lk=LK[brain];if(!lk||late)return cand[0];
+  const pool=cand.slice(0,lk.d);let best=pool[0],bestF=-1e9;
+  for(const m of pool){const nb=cloneB(board);for(const [r,c] of m.cells)nb[r][c]=seat;let fut=0,opp=0;
+    for(let r=0;r<N;r++)for(let c=0;c<N;c++){if(nb[r][c]!==0)continue;let d=false,e=false,od=false,oe=false;
+      for(const [dr,dc] of DIAG){const a=r+dr,b=c+dc;if(inB(a,b,N)){if(nb[a][b]===seat)d=true;else if(nb[a][b]>0)od=true;}}
+      for(const [dr,dc] of ORTH){const a=r+dr,b=c+dc;if(inB(a,b,N)){if(nb[a][b]===seat)e=true;else if(nb[a][b]>0)oe=true;}}
+      if(d&&!e)fut++;if(od&&!oe)opp++;}
+    const f=m.score+fut*lk.fw-opp*lk.ow;if(f>bestF){bestF=f;best=m;}}
+  return best;}
+
+// ===== 6. EVENTS ===========================================================
+const EVENTS={
+  meteor:{name:"Meteor Strike",icon:"☄",blurb:"Rocks slam the dish, craters vaporize squares (yours, theirs, even walls) and leave permanent rubble behind.",kind:"instant"},
+  quake:{name:"Earthquake",icon:"〰",blurb:"Fissures tear across the board; anything on a fault line falls in. Permanent.",kind:"instant"},
+  bloom:{name:"Bloom",icon:"❀",blurb:"A growth surge, every surviving colony sprouts a couple of free squares.",kind:"instant",good:true},
+  infection:{name:"Infection",icon:"☣",blurb:"A blight starts in an empty patch and creeps outward each round, slowly eating any squares it touches. Build away from it.",kind:"linger"},
+};
+const EVENT_IDS=Object.keys(EVENTS);
+const EVT_COLOR={meteor:"#d8472e",quake:"#c98a3a",bloom:"#3fa35e",infection:"#8aac4a"};
+function evShuffle(a){a=a.slice();for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
+// Fraction of playable cells filled (0..1). Events use this to scale up
+// intensity and to steer early strikes away from players.
+function boardProg(b){let f=0,cap=0;for(const row of b)for(const v of row){if(v>0)f++;if(v!==-2&&v!==-1)cap++;}return cap?f/cap:0;}
+function evNearPlayer(b,r,c,N,rad){for(let dr=-rad;dr<=rad;dr++)for(let dc=-rad;dc<=rad;dc++){const a=r+dr,e=c+dc;if(inB(a,e,N)&&b[a][e]>0)return true;}return false;}
+function evPickCell(cand,b,N,prog){ // early game (low prog) steers away from players
+  if(Math.random()>=prog){const pool=cand.filter(([r,c])=>!evNearPlayer(b,r,c,N,2));if(pool.length)return pool[Math.floor(Math.random()*pool.length)];}
+  return cand.length?cand[Math.floor(Math.random()*cand.length)]:null;}
+function evMeteor(board,prog){const N=board.length,nb=cloneB(board);let lost=0;
+  const cand=[];for(let r=0;r<N;r++)for(let c=0;c<N;c++)if(nb[r][c]!==-2)cand.push([r,c]);
+  for(let s=0,strikes=3+Math.floor(Math.random()*3);s<strikes;s++){const c0=evPickCell(cand,nb,N,prog);if(!c0)continue;
+    const core=[c0];if(Math.random()<0.6){const adj=ORTH.map(([dr,dc])=>[c0[0]+dr,c0[1]+dc]).filter(([a,b])=>inB(a,b,N)&&nb[a][b]!==-2);if(adj.length)core.push(adj[Math.floor(Math.random()*adj.length)]);}
+    for(const [cr,cc] of core)for(let dr=-1;dr<=1;dr++)for(let dc=-1;dc<=1;dc++){const a=cr+dr,b=cc+dc;if(!inB(a,b,N)||nb[a][b]===-2)continue;if(nb[a][b]>0)lost++;nb[a][b]=0;}
+    for(const [cr,cc] of core)if(nb[cr][cc]!==-2)nb[cr][cc]=-1;}
+  return {board:nb,text:`Meteors cratered the dish${lost?`, ${lost} square${lost>1?"s":""} vaporized`:""}.`};}
+function evQuake(board,prog){const N=board.length,nb=cloneB(board);let lost=0;
+  const dirs=[[0,1],[1,0],[1,1],[1,-1],[0,-1],[-1,0],[-1,-1],[-1,1]];const cand=[];for(let r=0;r<N;r++)for(let c=0;c<N;c++)if(nb[r][c]!==-2)cand.push([r,c]);
+  for(let s=0,segs=2+Math.floor(Math.random()*2);s<segs;s++){const st=evPickCell(cand,nb,N,prog);if(!st)continue;let r=st[0],c=st[1];let di=Math.floor(Math.random()*8),[dr,dc]=dirs[di];const len=5+Math.floor(Math.random()*5);
+    for(let k=0;k<len;k++){if(!inB(r,c,N))break;if(nb[r][c]!==-2){if(nb[r][c]>0)lost++;nb[r][c]=-1;}
+      if(Math.random()<0.4){di=(di+(Math.random()<0.5?1:7))%8;dr=dirs[di][0];dc=dirs[di][1];}
+      r+=dr;c+=dc;}}
+  return {board:nb,text:`An earthquake cracked the dish open${lost?`, ${lost} square${lost>1?"s":""} fell in`:""}.`};}
+function evBloom(board,count){const N=board.length,nb=cloneB(board);let grew=0;
+  for(let s=1;s<=count;s++){const spots=[];for(let r=0;r<N;r++)for(let c=0;c<N;c++){if(nb[r][c]!==0)continue;let d=false,e=false;
+      for(const [dr,dc] of DIAG){const a=r+dr,b=c+dc;if(inB(a,b,N)&&nb[a][b]===s)d=true;}
+      for(const [dr,dc] of ORTH){const a=r+dr,b=c+dc;if(inB(a,b,N)&&nb[a][b]===s)e=true;}
+      if(d&&!e)spots.push([r,c]);}
+    for(const [r,c] of evShuffle(spots).slice(0,2)){nb[r][c]=s;grew++;}}
+  return {board:nb,text:`A bloom swept the dish, colonies sprouted ${grew} fresh square${grew!==1?"s":""} (each one a point).`};}
+function evInfectSeed(board,infect){const N=board.length,inf=new Set(infect);
+  const empties=[];for(let r=0;r<N;r++)for(let c=0;c<N;c++)if(board[r][c]===0&&!inf.has(r+","+c))empties.push([r,c]);
+  if(!empties.length)return null;const players=[];for(let r=0;r<N;r++)for(let c=0;c<N;c++)if(board[r][c]>0)players.push([r,c]);
+  let best=empties[0],bd=-1;for(let t=0;t<50;t++){const [r,c]=empties[Math.floor(Math.random()*empties.length)];let d=99;for(const [pr,pc] of players){const dd=Math.max(Math.abs(pr-r),Math.abs(pc-c));if(dd<d)d=dd;}if(d>bd){bd=d;best=[r,c];}}
+  inf.add(best[0]+","+best[1]);
+  return {board:cloneB(board),infect:inf,text:`A blight has taken root in an empty patch, it creeps outward each round. Keep your colony clear of it.`};}
+function spreadInfection(board,infect,prog){const N=board.length,nb=cloneB(board),inf=new Set(infect);
+  const grow=[];for(const k of infect){const p=k.split(",");const r=+p[0],c=+p[1];for(const [dr,dc] of [...ORTH,...DIAG]){const a=r+dr,b=c+dc;if(inB(a,b,N)&&nb[a][b]===0&&!inf.has(a+","+b))grow.push(a+","+b);}}
+  for(const k of evShuffle([...new Set(grow)]).slice(0,1+(Math.random()<0.45?1:0)))inf.add(k);
+  const bite=[];for(const k of inf){const p=k.split(",");const r=+p[0],c=+p[1];for(const [dr,dc] of ORTH){const a=r+dr,b=c+dc;if(inB(a,b,N)&&nb[a][b]>0)bite.push([a,b]);}}
+  let lost=0;for(const [r,c] of evShuffle(bite).slice(0,1+Math.floor(prog*2))){nb[r][c]=0;inf.add(r+","+c);lost++;}
+  return {board:nb,infect:inf,lost};}
+// Dispatch one event by id; returns {board,infect,...} or null if it fizzled.
+function fireEvent(id,board,count,infect,prog){let r;
+  if(id==="meteor")r=evMeteor(board,prog);else if(id==="quake")r=evQuake(board,prog);else if(id==="bloom")r=evBloom(board,count);
+  else if(id==="infection"){r=evInfectSeed(board,infect);if(!r)return null;}else return null;
+  return {id,icon:EVENTS[id].icon,name:EVENTS[id].name,board:r.board,infect:r.infect||infect,text:r.text};}
+// ===== 7. POWERS & SPECIAL TILES (engine) ==================================
+// Choose where a CPU spends a Seed (best new growth corner) or Block (choke
+// the strongest rival corner). Returns {type,cell} or null to hold the charge.
+function cpuPowerAction(board,seat,pw,count){const N=board.length;
+  if(pw==="seed"){let best=null,bs=-1;
+    for(let r=0;r<N;r++)for(let c=0;c<N;c++){if(board[r][c]!==0)continue;
+      let ownAdj=false,opn=0;for(const [dr,dc] of [...ORTH,...DIAG]){const a=r+dr,b=c+dc;if(inB(a,b,N)){if(board[a][b]===0)opn++;else if(board[a][b]===seat&&Math.abs(dr)+Math.abs(dc)===1)ownAdj=true;}}
+      if(ownAdj)continue;const sc=opn+Math.random()*2;if(sc>bs){bs=sc;best=[r,c];}}
+    return best?{type:"seed",cell:best}:null;}
+  if(pw==="block"){const sc={};for(let r=0;r<N;r++)for(const v of board[r])if(v>0)sc[v]=(sc[v]||0)+1;
+    let lead=null,ls=-1;for(let i=1;i<=count;i++){if(i===seat)continue;if((sc[i]||0)>ls){ls=sc[i]||0;lead=i;}}
+    if(lead==null)return null;let best=null;
+    for(let r=0;r<N&&!best;r++)for(let c=0;c<N&&!best;c++){if(board[r][c]!==0)continue;let d=false,e=false;
+      for(const [dr,dc] of DIAG){const a=r+dr,b=c+dc;if(inB(a,b,N)&&board[a][b]===lead)d=true;}
+      for(const [dr,dc] of ORTH){const a=r+dr,b=c+dc;if(inB(a,b,N)&&board[a][b]===lead)e=true;}
+      if(d&&!e)best=[r,c];}
+    return best?{type:"block",cell:best}:null;}
+  return null;}
+
+/* Shared board helpers (pure; used by both human powers and CPU power logic). */
+// Empty cells that diagonally touch `seat` but NOT orthogonally: legal new growth corners.
+function colonyCorners(board,seat,specials){const N=board.length,out=[];
+  for(let r=0;r<N;r++)for(let c=0;c<N;c++){if(board[r][c]!==0||(specials&&specials.has(r+","+c)))continue;
+    let d=false,e=false;
+    for(const [dr,dc] of DIAG){const a=r+dr,b=c+dc;if(inB(a,b,N)&&board[a][b]===seat)d=true;}
+    for(const [dr,dc] of ORTH){const a=r+dr,b=c+dc;if(inB(a,b,N)&&board[a][b]===seat)e=true;}
+    if(d&&!e)out.push([r,c]);}
+  return out;}
+// First rival square (orthogonally or diagonally) adjacent to `seat`'s color, else null.
+function enemyTouching(board,seat){const N=board.length;
+  for(let r=0;r<N;r++)for(let c=0;c<N;c++){if(board[r][c]<=0||board[r][c]===seat)continue;
+    for(const [dr,dc] of [...ORTH,...DIAG]){const a=r+dr,b=c+dc;if(inB(a,b,N)&&board[a][b]===seat)return [r,c];}}
+  return null;}
+// Seats whose civ carries a tile-related trait, for special-tile resolution.
+function traitSets(seats,count){const shield=new Set(),burst=new Set(),bastion=new Set();
+  for(let s=1;s<=count;s++){const cv=seats[s-1]&&seats[s-1].civ;if(cv==="botswana")shield.add(s);if(cv==="kyrgyzstan")burst.add(s);if(cv==="malta")bastion.add(s);}
+  return {shield,burst,bastion};}
+
+// Resolve special tiles stepped on by a placement, honoring trait immunities
+// (shield=bomb-proof, bastion=wall-proof, burst=double teleport). Mutates nb,
+// consumes triggered tiles from sp, returns toast messages.
+function applySpecials(cover,seat,nb,sp,tr){const N=nb.length,out=[];const shield=(tr&&tr.shield)||new Set(),burst=(tr&&tr.burst)||new Set(),bastion=(tr&&tr.bastion)||new Set();
+  for(const [r,c] of cover){const t=sp.get(r+","+c);if(!t)continue;sp.delete(r+","+c);
+    if(t==="bomb"){let n=0;for(const [dr,dc] of [...ORTH,...DIAG]){const a=r+dr,b=c+dc;if(inB(a,b,N)&&nb[a][b]>0&&nb[a][b]!==seat&&!shield.has(nb[a][b])){nb[a][b]=0;n++;}}if(n)out.push({type:"bomb",n,text:`Bomb removed ${n} enemy square${n>1?"s":""}`});}
+    else if(t==="wall"){const dr=r<N/2?1:-1,dc=c<N/2?1:-1;let n=0;
+      for(let k=1;k<=3;k++){const a=r+dr*k,b=c+dc*k;if(!inB(a,b,N))break;const v=nb[a][b];
+        if(v===-2||v===seat||(v>0&&bastion.has(v)))break;
+        if(v===0||(v>0&&v!==seat)){nb[a][b]=-1;n++;}}
+      if(n)out.push({type:"wall",n,text:`Wall sealed ${n} square${n>1?"s":""}`});}
+    else if(t==="teleport"){const reps=burst.has(seat)?2:1;let added=0;for(let q=0;q<reps;q++){const opt=[];for(let i=0;i<N;i++)for(let j=0;j<N;j++){if(nb[i][j]!==0)continue;let near=false;for(const [dr,dc] of [...ORTH,...DIAG]){const a=i+dr,b=j+dc;if(inB(a,b,N)&&nb[a][b]>0){near=true;break;}}if(!near)opt.push([i,j]);}if(opt.length){const [i,j]=opt[Math.floor(Math.random()*opt.length)];nb[i][j]=seat;added++;}}if(added)out.push({type:"teleport",n:added,text:`Teleport added ${added} square${added>1?"s":""}`});}}
+  return out;}
+
+// ===== 8. THEME & UI TOKENS ================================================
+const SCHEMES=["SCHEMING…","PLOTTING…","CALCULATING…","EYEING YOUR CORNERS…","SIZING YOU UP…","CRUNCHING ANGLES…","PLANNING ITS SPREAD…","CONSPIRING…","READING THE BOARD…","SHARPENING KNIVES…"];
+const shade=(hex,amt)=>{const n=parseInt(hex.slice(1),16);let r=(n>>16)&255,g=(n>>8)&255,b=n&255;r=Math.round(r+(amt<0?r:255-r)*amt);g=Math.round(g+(amt<0?g:255-g)*amt);b=Math.round(b+(amt<0?b:255-b)*amt);return`rgb(${r},${g},${b})`;};
+// Build a playable board from a map id. Unknown ids fall back to "open" so a
+// stale or corrupted map selection can never crash game start.
+function buildMap(mId){const d=(MAPS[mId]||MAPS.open).build();const b=Array.from({length:d.N},()=>Array(d.N).fill(0));
+  for(const k of d.voids){const [r,c]=k.split(",").map(Number);b[r][c]=-2;}for(const k of d.walls){const [r,c]=k.split(",").map(Number);b[r][c]=-1;}
+  return{board:b,specials:new Map(d.specials),starts:d.starts,copies:d.copies||1};}
+
+
+const THEME={bg:"var(--bg)",panel:"var(--panel)",line:"var(--line)",grid:"var(--grid)",cell:"var(--cell)",wall:"var(--wall)",wallH:"var(--wallH)",ink:"var(--ink)",muted:"var(--muted)",accent:"var(--accent)",display:"'Archivo',system-ui,sans-serif",mono:"'Space Mono',ui-monospace,monospace"};
+const THEMES={
+  dark:{name:"Dark",bg:"#0c0e12",panel:"#15181f",line:"#2a2f3a",grid:"#1a1e26",cell:"#12151b",wall:"#49515f",wallH:"#727c8c",ink:"#e8ebf0",muted:"#878f9c",accent:"#c7cdd6",btnInk:"#0c0e12"},
+  light:{name:"Light",bg:"#ece3cf",panel:"#f4eede",line:"#d4c7a8",grid:"#d6c9ad",cell:"#e3d8bd",wall:"#b39a72",wallH:"#9c8056",ink:"#37322a",muted:"#776c57",accent:"#8a6240",btnInk:"#f6f1e6"},
+  dusk:{name:"Dusk",bg:"#14101e",panel:"#1d1830",line:"#322a4a",grid:"#201a33",cell:"#18132a",wall:"#4a3f6b",wallH:"#6e5f9c",ink:"#ece8f5",muted:"#9a8fb0",accent:"#b89cdb",btnInk:"#14101e"},
+  midnight:{name:"Midnight",bg:"#0a0d18",panel:"#121829",line:"#232c45",grid:"#131a2e",cell:"#0f1422",wall:"#3a4a6b",wallH:"#5e739c",ink:"#e6ebf5",muted:"#8794ad",accent:"#8fb0e0",btnInk:"#0a0d18"},
+  moss:{name:"Moss",bg:"#0b110c",panel:"#141d15",line:"#28342a",grid:"#18211a",cell:"#11160f",wall:"#3f5340",wallH:"#66805f",ink:"#e9f0e6",muted:"#8aa088",accent:"#9cc89a",btnInk:"#0b110c"},
+  ember:{name:"Ember",bg:"#120d0b",panel:"#1d1612",line:"#352720",grid:"#221a16",cell:"#16100d",wall:"#5e463a",wallH:"#8a6a55",ink:"#f0e8e3",muted:"#b09a8a",accent:"#d99a6a",btnInk:"#120d0b"},
+  rose:{name:"Rose",bg:"#160d11",panel:"#211520",line:"#3a2531",grid:"#241620",cell:"#190f15",wall:"#5e3a4a",wallH:"#8a5a72",ink:"#f3e6ec",muted:"#b08a9a",accent:"#db8aa8",btnInk:"#160d11"},
+};
+const PIECE_TEX={flat:"Flat",cells:"Cells",outline:"Outline"};
+// Lock all rules/content/theme data: these are read-only at runtime, so freezing
+// blocks any accidental in-place mutation from corrupting game state.
+[GLYPHS,CIVS,TRAIT,POWERS,CPU_BRAINS,TILE,MAPS,PIECES,EVENTS,EVT_COLOR,THEMES,THEME,PIECE_TEX,SCHEMES,ORTH,DIAG].forEach(o=>Object.freeze(o));
+function pieceCellStyle(color,tex,cellBg){
+  if(tex==="cells")return {background:color,backgroundImage:`radial-gradient(circle at 32% 28%, rgba(255,255,255,.32), rgba(255,255,255,0) 58%), radial-gradient(circle at 70% 78%, rgba(0,0,0,.22), rgba(0,0,0,0) 60%)`};
+  if(tex==="outline")return {background:cellBg,boxShadow:`inset 0 0 0 2px ${color}`};
+  return {background:color};}
+const card={background:"var(--panel)",border:"1px solid var(--line)",borderRadius:12,padding:16};
+const pill={fontFamily:THEME.mono,fontSize:12,padding:"8px 14px",borderRadius:8,border:"1px solid var(--line)",background:"transparent",color:"var(--muted)",cursor:"pointer"};
+const pillOn={background:"var(--panel)",borderColor:"var(--accent)",color:"var(--ink)"};
+const input={fontFamily:THEME.mono,fontSize:12,background:"var(--cell)",color:"var(--ink)",border:"1px solid var(--line)",borderRadius:7,padding:"6px 8px"};
+const ghostBtn={fontFamily:THEME.mono,fontSize:11,letterSpacing:1,padding:"6px 12px",borderRadius:8,border:"1px solid var(--line)",background:"transparent",color:"var(--muted)",cursor:"pointer"};
+const miniBtn={fontFamily:THEME.mono,fontSize:11.5,padding:"8px 12px",borderRadius:8,border:"1px solid var(--line)",background:"var(--panel)",color:"var(--ink)",cursor:"pointer"};
+const primaryBtn={fontFamily:THEME.display,fontWeight:700,fontSize:15,padding:"11px 22px",borderRadius:10,border:"none",background:"var(--accent)",color:"var(--btnInk)",cursor:"pointer"};
+const chip=c=>({fontFamily:THEME.mono,fontSize:11,padding:"3px 8px",borderRadius:6,border:`1px solid ${c}`,color:c});
+const toastStyle={position:"fixed",bottom:22,left:"50%",transform:"translateX(-50%)",background:"var(--panel)",border:"1px solid var(--accent)",color:"var(--ink)",padding:"9px 18px",borderRadius:22,fontFamily:THEME.mono,fontSize:12.5,boxShadow:"0 8px 30px rgba(0,0,0,.5)",zIndex:60};
+const overlay={position:"fixed",inset:0,background:"rgba(6,8,11,.78)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:50,padding:18};
+
+// ===== 9. SHARED UI COMPONENTS =============================================
+function Shell({children,wide,theme}){const th=theme||THEMES.dark;
+  const vars={"--bg":th.bg,"--panel":th.panel,"--line":th.line,"--grid":th.grid,"--cell":th.cell,"--wall":th.wall,"--wallH":th.wallH,"--ink":th.ink,"--muted":th.muted,"--accent":th.accent,"--btnInk":th.btnInk};
+  return(<div style={{...vars,minHeight:"100%",background:th.bg,color:th.ink,fontFamily:"'Hanken Grotesk',system-ui,sans-serif",padding:"clamp(10px,2.5vw,22px) clamp(8px,2.2vw,18px) 40px",transition:"background .3s,color .3s"}}>
+  <style>{`@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;800&family=Hanken+Grotesk:wght@400;500;600&family=Space+Mono&display=swap'); *{box-sizing:border-box} button{font-family:inherit;color:inherit} select{outline:none} @keyframes evglow{0%{opacity:.95}65%{opacity:.5}100%{opacity:0}} @keyframes evchip{0%{opacity:0;transform:translateY(-4px)}12%{opacity:1;transform:translateY(0)}75%{opacity:1}100%{opacity:0}} @keyframes quakeShake{0%,100%{transform:translate(0,0)}15%{transform:translate(-3px,2px)}30%{transform:translate(3px,-2px)}45%{transform:translate(-3px,-1px)}60%{transform:translate(2px,2px)}80%{transform:translate(-1px,1px)}}`}</style>
+  <div style={{maxWidth:wide?940:700,margin:"0 auto"}}>{children}</div></div>);}
+function Title({small}){const T=THEME;return(<div style={{textAlign:small?"left":"center",marginBottom:small?0:18}}>
+  <div style={{fontFamily:T.display,fontWeight:800,fontSize:small?22:42,letterSpacing:small?2:5,color:T.ink}}>PETRI</div>
+  {!small&&<div style={{fontFamily:T.mono,fontSize:11,color:T.muted,letterSpacing:3,marginTop:4}}>claim the dish</div>}</div>);}
+function Crumb({onBack,step}){const T=THEME;return(<div style={{display:"flex",alignItems:"center",gap:12,marginBottom:18}}><button onClick={onBack} style={ghostBtn}>← back</button><span style={{fontFamily:T.display,fontWeight:700,fontSize:20}}>{step}</span></div>);}
+function MapPreview({mapId,count}){const T=THEME;const {N,walls,specials,voids,starts}=MAPS[mapId].build();const ss=new Set(starts.slice(0,count).map(([r,c])=>r+","+c));
+  return(<div style={{display:"grid",gridTemplateColumns:`repeat(${N},1fr)`,gap:1,background:T.line,padding:1,borderRadius:6,width:"100%",aspectRatio:"1"}}>
+    {Array.from({length:N*N}).map((_,i)=>{const r=Math.floor(i/N),c=i%N,k=r+","+c,sp=specials.get(k);let bg=T.cell;
+      if(voids.has(k))bg=T.bg;else if(walls.has(k))bg=T.wallH;else if(sp)bg=TILE[sp].col;else if(ss.has(k))bg=T.accent;
+      return <div key={i} style={{aspectRatio:"1",borderRadius:1,background:bg}}/>;})}</div>);}
+
+function Pedia(){const T=THEME;
+  const H=({children})=><div style={{fontFamily:T.display,fontWeight:700,fontSize:15,margin:"16px 0 7px",color:T.ink}}>{children}</div>;
+  const P=({children})=><p style={{color:T.muted,fontSize:13,lineHeight:1.55,margin:"0 0 7px"}}>{children}</p>;
+  const Row=({k,v,c})=><div style={{display:"grid",gridTemplateColumns:"108px 1fr",gap:10,margin:"0 0 6px",fontSize:13,alignItems:"baseline"}}><b style={{color:c||T.ink}}>{k}</b><span style={{color:T.muted}}>{v}</span></div>;
+  return(<div>
+    <H>Make your own game</H>
+    <P>On the setup screen you can flip extra layers on or off: <b style={{color:T.ink}}>Powers</b> (a special ability each player can use) and <b style={{color:T.ink}}>Faction traits</b> (a built-in quirk per country). Turn them both off for the pure classic game, or stack them up. The <b style={{color:T.ink}}>Pure</b> and <b style={{color:T.ink}}>Everything</b> shortcuts set them in one tap.</P>
+    <H>What you're doing</H>
+    <P>It's like Tetris pieces meet a turf war. Each player has the same 21 shapes and one color. You take turns dropping shapes onto the board. When nobody can fit another shape, whoever covered the most squares wins.</P>
+    <H>The only rule to remember</H>
+    <P><b style={{color:T.ink}}>Your first piece</b> must sit on your starting corner (the little colored wedge).</P>
+    <P><b style={{color:T.ink}}>Every piece after that</b> must touch one of your own pieces at a <b style={{color:T.ink}}>corner</b> (the way two checkers squares meet diagonally) and must <b style={{color:T.ink}}>never</b> sit directly beside your own color (sharing a full edge). Touching other players, edge or corner, is allowed.</P>
+    <P>If you can't fit anything, you're out and the others keep playing.</P>
+    <H>Scoring</H>
+    <P>1 point per square of your color on the board, including free squares from Teleport tiles or the Seed power, so grabbing them is worth it. Place all 21 of your pieces for a +15 bonus, and +5 more if your very last piece was the single square.</P>
+    <H>Special tiles (on some boards)</H>
+    {Object.values(TILE).map(t=><Row key={t.name} c={t.col} k={`${t.mk} ${t.name}`} v={`${t.when} → ${t.then}`}/>)}
+    <H>Powers (pick one, Advanced)</H>
+    <P>You get one Power with a few uses (shown as ● dots), used from the panel during your turn. Powers only work in the early game, once you've placed enough pieces they lock, so spend them while they matter. Used a Seed/Block/Clear by mistake? Hit Undo before you place a piece.</P>
+    {POWER_IDS.map(p=><Row key={p} k={POWERS[p].name} v={`${POWERS[p].effect} (${POWERS[p].charges} use${POWERS[p].charges>1?"s":""})`}/>)}
+    <H>Teams &amp; traits (Advanced)</H>
+    <P>Each team is a country with its own color. With Faction traits on, every country also brings a built-in quirk (each works on its own, so duplicates are fine):</P>
+    {CIV_IDS.map(id=><Row key={id} c={CIVS[id].color} k={`${CIVS[id].name}`} v={`${TRAIT[id][0]}, ${TRAIT[id][1]}`}/>)}
+    <H>Events (Advanced)</H>
+    <P>Turn Events on and pick which ones are live. Every few rounds, a random one strikes the whole board, some hit once, some stick around. They don't play favorites; whatever's on the board gets hit.</P>
+    {EVENT_IDS.map(id=><Row key={id} k={`${EVENTS[id].icon} ${EVENTS[id].name}`} v={EVENTS[id].blurb}/>)}
+    <H>CPU opponents</H>
+    {Object.keys(CPU_BRAINS).map(b=><Row key={b} k={CPU_BRAINS[b].name} v={CPU_BRAINS[b].blurb}/>)}
+    <H>Boards</H>
+    <P>Open Range is the standard 20×20. Obstacle boards keep roughly 20, 22 squares of open space. <b style={{color:T.ink}}>Mega maps</b> are city-scale battlefields where everyone gets <b style={{color:T.ink}}>two of every piece</b>, long, sprawling games best with 3, 4 players.</P>
+    {MAP_IDS.map(id=><Row key={id} k={MAPS[id].name} v={MAPS[id].tag}/>)}
+  </div>);
+}
+
+// ===== 10. APP =============================================================
+function App(){
+  const [screen,setScreen]=useState("home");
+  const [mode,setMode]=useState("standard");
+  const [mapId,setMapId]=useState("open");
+  const [count,setCount]=useState(2);
+  const [seats,setSeats]=useState([
+    {kind:"human",civ:"guatemala",brain:"normal",power:"seed"},
+    {kind:"cpu",civ:"kyrgyzstan",brain:"normal",power:"seed"},
+    {kind:"human",civ:"botswana",brain:"normal",power:"seed"},
+    {kind:"human",civ:"tonga",brain:"normal",power:"seed"}]);
+  const [board,setBoard]=useState(()=>buildMap("open").board);
+  const [specials,setSpecials]=useState(()=>buildMap("open").specials);
+  const [starts,setStarts]=useState(()=>buildMap("open").starts);
+  const [used,setUsed]=useState({});const [last,setLast]=useState({});
+  const [turn,setTurn]=useState(1);const [done,setDone]=useState(()=>new Set());
+  const [selId,setSelId]=useState(null);const [sel,setSel]=useState(null);
+  const [hover,setHover]=useState(null);const [tent,setTent]=useState(null);
+  const [over,setOver]=useState(false);const [toast,setToast]=useState("");
+  const [charges,setCharges]=useState({});const [armed,setArmed]=useState(false);
+  const [targeting,setTargeting]=useState(null);const [showInfo,setShowInfo]=useState(false);
+  const [step,setStep]=useState(0);const [askConcede,setAskConcede]=useState(false);const [overSeed,setOverSeed]=useState(0);
+  const [opts,setOpts]=useState({powers:false,traits:false,events:false });
+  const [scheme,setScheme]=useState("SCHEMING…");
+  const [copies,setCopies]=useState(1);const [pundo,setPundo]=useState(null);const [overHidden,setOverHidden]=useState(false);
+  const [boardTheme,setBoardTheme]=useState("dark");const [pieceTex,setPieceTex]=useState("cells");const [showSettings,setShowSettings]=useState(false);
+  // Track viewport width; `mob` flips the game screen into the single-column
+  // touch layout (big buttons, on-screen rotate/flip, condensed panels).
+  const [vw,setVw]=useState(typeof window!=="undefined"?window.innerWidth:1024);
+  useEffect(()=>{const h=()=>setVw(window.innerWidth);window.addEventListener("resize",h);return()=>window.removeEventListener("resize",h);},[]);
+  const mob=vw<700;
+  const [infect,setInfect]=useState(()=>new Set());const [eventFlash,setEventFlash]=useState(null);
+  const [evtPick,setEvtPick]=useState({meteor:true,quake:true,bloom:true,infection:true});
+  const evtClock=useRef(0);const bannerT=useRef(null);const evtTurns=useRef(0);
+  const curCell=useRef(null);const selRef=useRef(null);const busy=useRef(false);
+  const tT=useRef(null);
+  const N=board.length;
+
+  const seatsN=useMemo(()=>Array.from({length:count},(_,i)=>i+1),[count]);
+  const startOf=useCallback(s=>starts[s-1],[starts]);
+  // Seat lookups tolerate out-of-range indices (fall back to the first civ)
+  // so a transient bad seat number degrades gracefully instead of crashing render.
+  const civOf=useCallback(s=>(seats[s-1]&&seats[s-1].civ)||CIV_IDS[0],[seats]);
+  const variantOf=useCallback(s=>{const c=civOf(s);let v=0;for(let i=1;i<s;i++)if(seats[i-1].civ===c)v++;return v;},[seats,civOf]);
+  const colorOf=useCallback(s=>{const b=CIVS[civOf(s)].color,v=variantOf(s);return v?shade(b,v===1?-0.32:v===2?0.32:-0.55):b;},[civOf,variantOf]);
+  const glyphOf=useCallback(s=>{const c=civOf(s);let dup=false;for(let i=1;i<=count;i++)if(i!==s&&seats[i-1].civ===c)dup=true;return dup?GLYPHS[(s-1)%4]:null;},[seats,count,civOf]);
+  const isFirst=useCallback(s=>!used[s]||Object.keys(used[s]).length===0,[used]);
+  const curHuman=()=>seats[turn-1]?.kind==="human";
+  const oPowers=opts.powers,oTraits=opts.traits;
+  const evtEnabled=EVENT_IDS.filter(k=>evtPick[k]);const oEvents=opts.events&&evtEnabled.length>0;
+  const evtDelay=n=>n*2+Math.floor(Math.random()*n*2)+1;
+  const POWER_MIN=4,POWER_MAX=13; // powers usable only between your 4th and 13th placement
+  const powerMax=s=>POWER_MAX+(oTraits&&civOf(s)==="guatemala"?9:0);
+  const placed=s=>Object.values(used[s]||{}).reduce((a,b)=>a+b,0);
+  
+
+  const live=useRef({});live.current={board,specials,used,turn,count,done,isFirst,startOf,copies,charges,infect,starts};
+  const flash=m=>{setToast(m);clearTimeout(tT.current);tT.current=setTimeout(()=>setToast(""),2000);};
+
+  function startGame(){const {board:b,specials:sp,starts:st,copies:cp}=buildMap(mapId);
+    const pw=opts.powers,tr=opts.traits;
+    const u={},l={},ch={};for(let s=1;s<=count;s++){u[s]={};l[s]=null;ch[s]=pw?POWERS[seats[s-1].power].charges+(tr&&seats[s-1].civ==="colombia"?1:0):0;}
+    if(tr)for(let s=1;s<=count;s++)if(seats[s-1].civ==="lithuania"){const [sr,sc]=st[s-1];const dr=sr<b.length/2?1:-1,dc=sc<b.length/2?1:-1,d=Math.round(b.length*0.3);
+      const pr=sr+dr*d,pc=sc+dc*d;let done2=false;for(let rad=0;rad<6&&!done2;rad++)for(let a=pr-rad;a<=pr+rad&&!done2;a++)for(let e=pc-rad;e<=pc+rad&&!done2;e++)if(a>=0&&a<b.length&&e>=0&&e<b.length&&b[a][e]===0){b[a][e]=s;done2=true;}}
+    setBoard(b);setSpecials(sp);setStarts(st);setCopies(cp);setUsed(u);setLast(l);setCharges(ch);setDone(new Set());
+    setScheme(SCHEMES[0]);setPundo(null);setOverHidden(false);
+    setInfect(new Set());setEventFlash(null);clearTimeout(bannerT.current);evtClock.current=evtDelay(count);evtTurns.current=0;
+    setTurn(1);setStep(0);setAskConcede(false);setSel(null);setSelId(null);setHover(null);setTent(null);setArmed(false);setTargeting(null);setOver(false);setToast("");busy.current=false;setScreen("game");}
+
+  function pickPiece(id){if(over||!curHuman()||(used[turn]?.[id]||0)>=copies||targeting)return;setSelId(id);const o=norm(PIECES[id]);setSel(o);selRef.current=o;setTent(null);}
+  // Rotating or flipping keeps the tentative piece anchored where it was and
+  // re-checks legality there, so adjusting a piece never loses your spot.
+  function orientKeep(f){const o=f(selRef.current);setSel(o);selRef.current=o;
+    if(tent&&tent.r!==undefined){const cells=anchorWith(o,tent.r,tent.c);
+      if(cells.every(([a,b])=>inB(a,b,board.length)))setTent({cells,id:tent.id,r:tent.r,c:tent.c,ok:valid(board,cells,turn,isFirst(turn),startOf(turn),armed)});
+      else setTent(null);}}
+  function doRot(){if(selRef.current)orientKeep(rot);}
+  function doFlip(){if(selRef.current)orientKeep(flp);}
+  // Rebind each render so the handler always sees current tent/board state.
+  useEffect(()=>{const h=e=>{if(e.key==="r"||e.key==="R")doRot();if(e.key==="f"||e.key==="F")doFlip();};window.addEventListener("keydown",h);return()=>window.removeEventListener("keydown",h);}); // eslint-disable-line
+
+  const anchorWith=(o,r,c)=>{let hr=o[0][0],hc=o[0][1];for(const [pr,pc] of o){if(pr<hr||(pr===hr&&pc<hc)){hr=pr;hc=pc;}}return o.map(([pr,pc])=>[r+pr-hr,c+pc-hc]);};
+  const anchorCells=(r,c)=>sel?anchorWith(sel,r,c):null;
+  useEffect(()=>{const cell=curCell.current;
+    if(sel&&cell&&curHuman()&&!tent&&!targeting){const cells=anchorWith(sel,cell[0],cell[1]);setHover({cells,valid:valid(board,cells,turn,isFirst(turn),startOf(turn),armed)});}
+    else if(!sel)setHover(null);
+  },[sel,armed]); // eslint-disable-line
+  function cellEnter(r,c){curCell.current=[r,c];if(mob||!sel||tent||!curHuman()||targeting)return;const cells=anchorWith(sel,r,c);setHover({cells,valid:valid(board,cells,turn,isFirst(turn),startOf(turn),armed)});}
+
+  function usePower(){if(!oPowers||!curHuman()||over)return;const pw=seats[turn-1].power;
+    if((charges[turn]||0)<=0){flash("No charges left");return;}
+    const p=placed(turn);if(p<POWER_MIN){flash(`Powers unlock after ${POWER_MIN} pieces`);return;}
+    if(p>=powerMax(turn)){flash("Powers are locked this late in the game");return;}
+    const P=POWERS[pw];if(P.target==="arm"){setArmed(a=>!a);flash(armed?"Bridge off":"Bridge on, now place a piece");return;}
+    if(P.target==="auto"){applySpore();return;}
+    setSel(null);setSelId(null);setTent(null);setTargeting({id:pw,need:P.picks,picks:[]});flash(`${P.name}: ${P.trigger}`);}
+  // All powers funnel through commitPower: snapshot for Undo, write the board,
+  // spend the charge, clear targeting, toast. One path means one set of rules.
+  function commitPower(name,nb){
+    setPundo({board:cloneB(board),charge:charges[turn]||0,seat:turn});
+    setBoard(nb);setCharges(c=>({...c,[turn]:(c[turn]||0)-1}));setTargeting(null);flash(`${name} used, Undo to take it back`);}
+  function applySpore(){const nb=cloneB(board),opt=colonyCorners(nb,turn,specials);
+    if(!opt.length){flash("No open corners to sprout into");return;}
+    for(const [r,c] of opt.sort(()=>Math.random()-0.5).slice(0,2))nb[r][c]=turn;
+    commitPower("Spore",nb);}
+  function applyPower(pw,picks){const nb=cloneB(board);
+    if(pw==="seed")for(const [r,c] of picks)nb[r][c]=turn;        // grow: new own square
+    else if(pw==="block")nb[picks[0][0]][picks[0][1]]=-1;          // deny: empty to wall
+    else if(pw==="clear")nb[picks[0][0]][picks[0][1]]=0;           // open: own square removed
+    else if(pw==="graft")nb[picks[0][0]][picks[0][1]]=turn;        // steal: rival square becomes yours
+    else if(pw==="blight")nb[picks[0][0]][picks[0][1]]=0;          // snipe: rival square removed
+    commitPower(POWERS[pw].name,nb);}
+  function undoPower(){if(!pundo)return;setBoard(pundo.board);setCharges(c=>({...c,[pundo.seat]:pundo.charge}));setPundo(null);flash("Power undone");}
+  // Resolve a board click while a power is choosing its target. Guards run
+  // before any board read: targeting must be active and (r,c) in bounds.
+  function targetClick(r,c){const t=targeting;if(!t||!POWERS[t.id]||!inB(r,c,board.length))return;
+    const P=POWERS[t.id],v=board[r][c],N=board.length;
+    if(P.target==="empty"&&v!==0){flash("Pick an empty square");return;}
+    if(P.target==="empty"&&specials.has(r+","+c)){flash("Not on a special tile");return;}
+    if(P.target==="own"&&v!==turn){flash("Pick one of your own squares");return;}
+    if(P.target==="enemy"){if(v<=0||v===turn){flash("Pick a rival square");return;}let adj=false;for(const [dr,dc] of [...ORTH,...DIAG]){const a=r+dr,b=c+dc;if(inB(a,b,N)&&board[a][b]===turn)adj=true;}if(!adj){flash("It must touch your own color");return;}}
+    if(P.target==="enemyAny"&&(v<=0||v===turn)){flash("Pick a rival square");return;}
+    if(P.target==="empty"&&t.picks.some(([a,b])=>a===r&&b===c))return;const picks=[...t.picks,[r,c]];
+    if(picks.length>=t.need)applyPower(t.id,picks);else setTargeting({...t,picks});}
+  function cellClick(r,c){if(over)return;if(targeting){targetClick(r,c);return;}if(!sel||!curHuman())return;
+    if((used[turn]?.[selId]||0)>=copies){flash("You have no more of that piece");setSel(null);setSelId(null);return;}
+    const cells=anchorCells(r,c);const ok=valid(board,cells,turn,isFirst(turn),startOf(turn),armed);
+    if(mob){ // touch: always drop the piece so it's visible, mark illegal spots red, let arrows fine-tune
+      if(!cells.every(([a,b])=>inB(a,b,board.length))){flash("Too close to the edge for this piece");return;}
+      setTent({cells,id:selId,r,c,ok});setHover(null);
+      if(!ok)flash("Red means illegal here. Nudge it with the arrows or tap elsewhere.");return;}
+    if(ok){setTent({cells,id:selId,r,c,ok:true});setHover(null);}else flash("Not there, colonies only link at the corners, never flat edge to edge.");}
+  // Shift the tentative piece one cell; legality re-checked live (mobile arrows).
+  function nudge(dr,dc){if(!tent||tent.r===undefined||!sel)return;const r=tent.r+dr,c=tent.c+dc;
+    const cells=anchorWith(sel,r,c);if(!cells.every(([a,b])=>inB(a,b,board.length)))return;
+    setTent({cells,id:tent.id,r,c,ok:valid(board,cells,turn,isFirst(turn),startOf(turn),armed)});}
+
+  function commit(cells,id,seat){const nb=cloneB(live.current.board);for(const [r,c] of cells)nb[r][c]=seat;
+    const sp=new Map(live.current.specials);const {shield,burst,bastion}=traitSets(seats,opts.traits?count:0);
+    const msg=applySpecials(cells,seat,nb,sp,{shield,burst,bastion});setPundo(null);
+    setBoard(nb);setSpecials(sp);setUsed(u=>({...u,[seat]:{...u[seat],[id]:((u[seat]||{})[id]||0)+1}}));setLast(l=>({...l,[seat]:id}));if(msg.length)flash(msg.map(o=>o.text).join(" · "));}
+  function submit(){if(!tent||busy.current)return;const s=turn,id=tent.id;
+    if(tent.ok===false){flash("That spot is illegal. The piece must link to your color corner to corner.");return;}
+    if((used[s]?.[id]||0)>=copies){setTent(null);setSel(null);setSelId(null);flash("You have no more of that piece");return;}
+    busy.current=true;if(armed){setCharges(c=>({...c,[s]:(c[s]||0)-1}));setArmed(false);}commit(tent.cells,id,s);setTent(null);setSel(null);setSelId(null);advance(s);setTimeout(()=>{busy.current=false;},80);}
+  function concede(){const s=turn;const nd=new Set(done);nd.add(s);setDone(nd);setSel(null);setSelId(null);setTent(null);setTargeting(null);setArmed(false);flash(`${CIVS[civOf(s)].name} bends the knee.`);advance(s,nd);}
+
+  function advance(from,doneSet){setTimeout(()=>{const L=live.current,n=L.count,dn=doneSet||L.done;let fired=false;
+    if(oEvents&&!over){try{
+      let bd=L.board,inf=L.infect,ev=null;const prog=boardProg(bd);evtTurns.current++;
+      if(inf&&inf.size&&evtTurns.current%n===0){const sp=spreadInfection(bd,inf,prog);bd=sp.board;inf=sp.infect;}
+      if(--evtClock.current<=0){const id=evtEnabled[Math.floor(Math.random()*evtEnabled.length)];const f=fireEvent(id,bd,n,inf,prog);if(f){bd=f.board;inf=f.infect;ev=f;}evtClock.current=evtDelay(n);}
+      if(bd!==L.board)setBoard(bd);if(inf!==L.infect)setInfect(inf);
+      if(ev){fired=true;setEventFlash({id:ev.id,icon:ev.icon,name:ev.name});clearTimeout(bannerT.current);bannerT.current=setTimeout(()=>setEventFlash(null),1800);}
+    }catch(e){}}
+    const pick=()=>{const LL=live.current;for(let k=1;k<=n;k++){const cand=((from-1+k)%n)+1;if(dn.has(cand))continue;
+      if(anyMove(LL.board,LL.used[cand]||{},cand,LL.isFirst(cand),LL.startOf(cand),LL.copies)){setTurn(cand);setStep(x=>x+1);setArmed(false);setTargeting(null);return;}}
+      setOverSeed(Math.random());setOver(true);};
+    if(fired)setTimeout(pick,1050);else pick();},0);}
+
+  function cpuTurn(s){try{const L=live.current;let nb=cloneB(L.board);const brain=seats[s-1].brain;
+    const pc=Object.values(L.used[s]||{}).reduce((a,b)=>a+b,0),first=pc===0;
+    const ch={...L.charges};let edge=false,used2=false;
+    const canPow=oPowers&&POWER_BRAINS.has(brain)&&(ch[s]||0)>0&&pc>=POWER_MIN&&pc<powerMax(s);
+    const pw=seats[s-1].power;
+    if(canPow&&(pw==="seed"||pw==="block")){const act=cpuPowerAction(nb,s,pw,L.count);
+      if(act&&nb[act.cell[0]][act.cell[1]]===0&&!(pw==="seed"&&L.specials.has(act.cell[0]+","+act.cell[1]))){
+        nb[act.cell[0]][act.cell[1]]=act.type==="seed"?s:-1;ch[s]--;used2=true;}}
+    if(canPow&&pw==="spore"&&!used2){const opt=colonyCorners(nb,s,L.specials);
+      if(opt.length){for(const [r,c] of opt.sort(()=>Math.random()-0.5).slice(0,2))nb[r][c]=s;ch[s]--;used2=true;}}
+    if(canPow&&pw==="graft"&&!used2){const tgt=enemyTouching(nb,s);if(tgt){nb[tgt[0]][tgt[1]]=s;ch[s]--;used2=true;}}
+    if(canPow&&pw==="blight"&&!used2){const tgt=enemyTouching(nb,s);if(tgt){nb[tgt[0]][tgt[1]]=0;ch[s]--;used2=true;}}
+    let mv=cpuMove(nb,L.used[s]||{},s,first,startOf(s),brain,L.copies,false);
+    if(canPow&&pw==="bridge"&&!used2&&(!mv||mv.cells.length<=3)){const mv2=cpuMove(nb,L.used[s]||{},s,first,startOf(s),brain,L.copies,true);
+      if(mv2&&(!mv||mv2.cells.length>mv.cells.length)){mv=mv2;edge=true;ch[s]--;used2=true;}}
+    if(!mv){const nd=new Set(L.done);nd.add(s);if(used2){setBoard(nb);setCharges(ch);}setDone(nd);advance(s,nd);return;}
+    for(const [r,c] of mv.cells)nb[r][c]=s;
+    const sp=new Map(L.specials);const {shield,burst,bastion}=traitSets(seats,opts.traits?L.count:0);
+    applySpecials(mv.cells,s,nb,sp,{shield,burst,bastion});
+    setBoard(nb);setSpecials(sp);if(used2)setCharges(ch);
+    setUsed(u=>({...u,[s]:{...u[s],[mv.id]:((u[s]&&u[s][mv.id])||0)+1}}));
+    setLast(l=>({...l,[s]:mv.id}));advance(s);
+    }catch(e){advance(s);}}
+  useEffect(()=>{if(screen!=="game"||over)return;const s=turn;if(done.has(s))return;
+    if(!anyMove(board,used[s]||{},s,isFirst(s),startOf(s),copies)){const nd=new Set(done);nd.add(s);
+      setDone(nd);flash(`${CIVS[civOf(s)].name} is hemmed in, out of the fight.`);advance(s,nd);return;}
+    if(seats[s-1].kind==="cpu"){setScheme(SCHEMES[Math.floor(Math.random()*SCHEMES.length)]);const t=setTimeout(()=>cpuTurn(s),520);return()=>clearTimeout(t);}
+  },[turn,step,screen,over]); // eslint-disable-line
+
+  const scoreOf=s=>{let sq=0;for(let r=0;r<N;r++)for(let c=0;c<N;c++)if(board[r][c]===s)sq++;const u=used[s]||{};const tot=Object.values(u).reduce((a,b)=>a+b,0);const all=tot===PIECE_IDS.length*copies;let b=0;if(all){b+=15;if(last[s]==="mono")b+=5;}
+    if(oTraits&&civOf(s)==="tonga"){let pent=0;for(const id of Object.keys(u))if(PSIZE[id]===5)pent+=u[id];b+=pent;}
+    if(oTraits&&civOf(s)==="dominican")b+=Math.floor(tot/4);
+    if(oTraits&&civOf(s)==="jamaica"){let lng=0;for(const id of Object.keys(u))if(PLONG.has(id))lng+=u[id];b+=lng;}return sq+b;};
+  const hoverSet=useMemo(()=>{const m=new Map();if(hover)for(const [r,c] of hover.cells)if(inB(r,c,N))m.set(r+","+c,hover.valid);return m;},[hover,N]);
+  const tentSet=useMemo(()=>{const s=new Set();if(tent)for(const [r,c] of tent.cells)s.add(r+","+c);return s;},[tent]);
+  const startMarks=useMemo(()=>{const m={};for(let s=1;s<=count;s++){const [r,c]=starts[s-1];m[r+","+c]=s;}return m;},[count,starts]);
+  const T=THEME;
+  const STH=THEMES[boardTheme]||THEMES.dark;
+  const settingsModal=showSettings&&<div style={overlay} onClick={()=>setShowSettings(false)}><div onClick={e=>e.stopPropagation()} style={{...card,padding:"22px 24px",maxWidth:420,width:"100%"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}><b style={{fontFamily:T.display,fontSize:18}}>Look &amp; feel</b><button onClick={()=>setShowSettings(false)} style={ghostBtn}>close</button></div>
+      <div style={{fontFamily:T.mono,fontSize:10,color:T.muted,letterSpacing:1.5,marginBottom:8}}>BOARD THEME</div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(112px,1fr))",gap:8,marginBottom:18}}>
+        {Object.keys(THEMES).map(id=>{const th=THEMES[id],on=boardTheme===id;
+          return <button key={id} onClick={()=>setBoardTheme(id)} style={{padding:8,borderRadius:10,border:`1px solid ${on?T.accent:T.line}`,background:T.panel,cursor:"pointer",textAlign:"left"}}>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:2,height:28,borderRadius:5,overflow:"hidden",marginBottom:6,background:th.grid,padding:2}}>
+              <span style={{background:th.cell,borderRadius:2}}/><span style={{background:CIVS.kyrgyzstan.color,borderRadius:2}}/><span style={{background:CIVS.botswana.color,borderRadius:2}}/><span style={{background:th.wall,borderRadius:2}}/></div>
+            <span style={{fontFamily:T.mono,fontSize:11,color:on?T.ink:T.muted}}>{on?"● ":"○ "}{th.name}</span></button>;})}
+      </div>
+      <div style={{fontFamily:T.mono,fontSize:10,color:T.muted,letterSpacing:1.5,marginBottom:8}}>PIECE TEXTURE</div>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        {Object.keys(PIECE_TEX).map(id=>{const on=pieceTex===id;const demo=pieceCellStyle(CIVS.guatemala.color,id,STH.cell);
+          return <button key={id} onClick={()=>setPieceTex(id)} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 12px",borderRadius:9,border:`1px solid ${on?T.accent:T.line}`,background:T.panel,cursor:"pointer"}}>
+            <span style={{width:20,height:20,borderRadius:4,...demo}}/><span style={{fontFamily:T.mono,fontSize:11.5,color:on?T.ink:T.muted}}>{PIECE_TEX[id]}</span></button>;})}
+      </div>
+    </div></div>;
+
+  function guide(){if(!curHuman())return`${CIVS[civOf(turn)].name} is making their move…`;
+    if(targeting){const P=POWERS[targeting.id];const left=P.picks-targeting.picks.length;const what=targeting.id==="clear"?"of your squares":targeting.id==="graft"?"rival square that touches your color":targeting.id==="blight"?"rival square anywhere":"empty square"+(left>1?"s":"");return`${P.name}: click ${left} ${what}, or Cancel.`;}
+    if(tent)return"Looks right? Lock it in.";
+    if(armed)return"Bridge is live, set a piece flush against your own color.";
+    if(sel)return"Spin it with R, flip with F, then drop it on the board.";
+    return"Choose a piece and start spreading."+(oPowers?" Your power's waiting on the right.":"");}
+
+  if(screen==="home")return(<Shell theme={STH}><Title/>
+    <div style={{display:"flex",gap:12,flexWrap:"wrap",justifyContent:"center",marginTop:10}}>
+      <button onClick={()=>setScreen("map")} style={{...primaryBtn,fontSize:17,padding:"13px 40px"}}>Play</button>
+      <button onClick={()=>setScreen("pedia")} style={{...ghostBtn,fontSize:14,padding:"13px 22px"}}>How to play</button>
+      <button onClick={()=>setShowSettings(true)} style={{...ghostBtn,fontSize:14,padding:"13px 22px"}}>⚙ Theme</button>
+    </div>
+    {settingsModal}
+  </Shell>);
+
+
+  if(screen==="pedia")return(<Shell theme={STH}><Crumb onBack={()=>setScreen("home")} step="How to play"/><Pedia/></Shell>);
+
+  if(screen==="map")return(<Shell theme={STH}>
+    <Crumb onBack={()=>setScreen("home")} step="Pick a board"/>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(150px,1fr))",gap:12}}>
+      {MAP_IDS.map(id=>(<button key={id} onClick={()=>setMapId(id)} style={{...card,padding:12,cursor:"pointer",textAlign:"center",borderColor:mapId===id?T.accent:T.line}}>
+        <MapPreview mapId={id} count={count}/><div style={{fontFamily:T.display,fontWeight:700,fontSize:15,marginTop:8}}>{MAPS[id].name}</div>
+        <div style={{color:T.muted,fontSize:11.5,fontFamily:T.mono}}>{MAPS[id].tag}</div></button>))}
+    </div>
+    <div style={{marginTop:14,display:"flex",gap:10,alignItems:"center",fontSize:12.5,color:T.muted,flexWrap:"wrap"}}>
+      {Object.values(TILE).map(t=><span key={t.name} style={chip(t.col)}>{t.mk} {t.name}</span>)}
+      <button onClick={()=>setScreen("pedia")} style={{...ghostBtn,marginLeft:"auto"}}>what do tiles do?</button></div>
+    <button onClick={()=>setScreen("players")} style={{...primaryBtn,marginTop:20}}>Players →</button>
+  </Shell>);
+
+  if(screen==="players"){
+    // Whitelist every incoming select value so only known ids can enter seat state.
+    const ALLOW={kind:["human","cpu"],civ:CIV_IDS,brain:Object.keys(CPU_BRAINS),power:POWER_IDS};
+    const upd=(i,p)=>{for(const k in p){if(ALLOW[k]&&!ALLOW[k].includes(p[k]))return;}setSeats(s=>s.map((x,j)=>j===i?{...x,...p}:x));};
+    return(<Shell theme={STH}><Crumb onBack={()=>setScreen("map")} step={`Players · ${MAPS[mapId].name}`}/>
+      <div style={{display:"flex",gap:8,marginBottom:14,alignItems:"center",flexWrap:"wrap"}}>{[2,3,4].map(n=><button key={n} onClick={()=>setCount(n)} style={{...pill,...(count===n?pillOn:{})}}>{n} players</button>)}</div>
+      <div style={{...card,padding:"12px 14px",marginBottom:14}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,flexWrap:"wrap",gap:6}}>
+          <span style={{fontFamily:T.mono,fontSize:10,color:T.muted,letterSpacing:1.5}}>GAME OPTIONS</span>
+          <span style={{display:"flex",gap:6}}>
+            <button onClick={()=>setOpts(o=>({...o,powers:false,traits:false,events:false}))} style={{...ghostBtn,padding:"4px 10px"}}>Pure</button>
+            <button onClick={()=>setOpts(o=>({...o,powers:true,traits:true,events:true}))} style={{...ghostBtn,padding:"4px 10px"}}>Everything</button></span></div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          {[["powers","Powers"],["traits","Faction traits"],["events","Events"]].map(([k,lab])=>(
+            <button key={k} onClick={()=>setOpts(o=>({...o,[k]:!o[k]}))} style={{...pill,...(opts[k]?pillOn:{}),cursor:"pointer"}}>{opts[k]?"✓ ":"  "}{lab}</button>))}
+        </div>
+        {opts.events&&<div style={{marginTop:10,paddingTop:10,borderTop:`1px solid ${T.line}`}}>
+          <div style={{fontFamily:T.mono,fontSize:9.5,color:T.muted,letterSpacing:1.5,marginBottom:7}}>WHICH EVENTS · they strike every few rounds</div>
+          <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+            {EVENT_IDS.map(k=>(<button key={k} title={EVENTS[k].blurb} onClick={()=>setEvtPick(p=>({...p,[k]:!p[k]}))} style={{...pill,...(evtPick[k]?pillOn:{}),padding:"6px 11px"}}>{evtPick[k]?"✓ ":"  "}{EVENTS[k].icon} {EVENTS[k].name}</button>))}
+          </div>
+          {evtEnabled.length===0&&<div style={{fontSize:11.5,color:"#c5a37a",marginTop:7}}>Pick at least one, or events stay off.</div>}
+        </div>}
+      </div>
+      <div style={{display:"grid",gap:10}}>
+        {Array.from({length:count}).map((_,i)=>{const st=seats[i];const dup=seats.slice(0,i).filter(x=>x.civ===st.civ).length;
+          const col=dup?shade(CIVS[st.civ].color,dup===1?-0.32:dup===2?0.32:-0.55):CIVS[st.civ].color;
+          return(<div key={i} style={{...card,padding:"12px 14px"}}>
+            <div style={{display:"flex",gap:12,alignItems:"center",flexWrap:"wrap"}}>
+              <span style={{width:20,height:20,borderRadius:5,background:col,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,color:"#0008"}}>{dup?GLYPHS[i%4]:""}</span>
+              <b style={{minWidth:58,fontFamily:T.mono,fontSize:12.5}}>SEAT {i+1}</b>
+              <select value={st.kind} onChange={e=>upd(i,{kind:e.target.value})} style={input}><option value="human">Human</option><option value="cpu">CPU</option></select>
+              <select value={st.civ} onChange={e=>upd(i,{civ:e.target.value})} style={input}>{CIV_IDS.map(id=><option key={id} value={id}>{CIVS[id].name}</option>)}</select>
+              {st.kind==="cpu"&&<select value={st.brain} onChange={e=>upd(i,{brain:e.target.value})} style={input}>{Object.keys(CPU_BRAINS).map(b=><option key={b} value={b}>{CPU_BRAINS[b].name}</option>)}</select>}
+              {opts.powers&&<select value={st.power} onChange={e=>upd(i,{power:e.target.value})} style={input}>{POWER_IDS.map(p=><option key={p} value={p}>{POWERS[p].name}</option>)}</select>}
+            </div>
+            {(opts.powers||opts.traits)&&<div style={{fontSize:11.5,marginTop:8,fontFamily:T.mono,lineHeight:1.6}}>
+              {opts.powers&&<div style={{color:T.accent}}>◈ POWER, {POWERS[st.power].name} ({POWERS[st.power].charges} use{POWERS[st.power].charges>1?"s":""}): <span style={{color:T.muted}}>{POWERS[st.power].effect}</span></div>}
+              {opts.traits&&<div style={{color:col}}>✦ {CIVS[st.civ].name.toUpperCase()} TRAIT, <span style={{color:T.muted}}>{TRAIT[st.civ][0]}: {TRAIT[st.civ][1]}</span></div>}</div>}
+            {st.kind==="cpu"&&<div style={{fontSize:11,color:T.muted,marginTop:6}}>{CPU_BRAINS[st.brain].blurb}</div>}
+          </div>);})}
+      </div>
+      <button onClick={startGame} style={{...primaryBtn,marginTop:18}}>Begin →</button>
+    </Shell>);}
+
+  const cur=turn,curCol=colorOf(cur);const standings=[...seatsN].sort((a,b)=>scoreOf(b)-scoreOf(a));const winner=over?standings[0]:null;
+  const scs=seatsN.map(scoreOf);const everyoneStarted=seatsN.every(s=>placed(s)>=4);
+  const fertile=(everyoneStarted&&Math.max(...scs)-Math.min(...scs)>=12)?seatsN[scs.indexOf(Math.min(...scs))]:0;
+  const pw=seats[cur-1].power;const cellPx=Math.max(8,Math.round(560/N*0.5));
+
+  const BT=THEMES[boardTheme]||THEMES.dark;
+  return(<Shell wide theme={BT}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
+      <Title small/><div style={{display:"flex",gap:mob?5:8}}><button onClick={()=>setShowSettings(true)} style={{...ghostBtn,...(mob?{padding:"6px 9px"}:{})}}>{mob?"⚙":"⚙ theme"}</button><button onClick={()=>setShowInfo(true)} style={{...ghostBtn,...(mob?{padding:"6px 9px"}:{})}}>{mob?"?":"? help"}</button>{!mob&&<button onClick={()=>setScreen("players")} style={ghostBtn}>setup</button>}<button onClick={()=>setScreen("home")} style={{...ghostBtn,...(mob?{padding:"6px 9px"}:{})}}>quit</button></div>
+    </div>
+    <div style={count<=2?{display:"flex",gap:8,flexWrap:"wrap",marginBottom:mob?10:14,justifyContent:"center"}:{display:"grid",gridTemplateColumns:mob?"1fr 1fr":`repeat(${count},minmax(0,1fr))`,gap:mob?6:8,marginBottom:mob?10:14}}>
+      {seatsN.map(s=>{const out=done.has(s),act=s===turn&&!over;const g=glyphOf(s);
+        return(<div key={s} style={{...(count<=2?{flex:"0 1 220px",maxWidth:260}:{minWidth:0}),...card,padding:mob?"6px 9px":"8px 11px",borderColor:act?colorOf(s):T.line,boxShadow:act?`0 0 0 1px ${colorOf(s)}`:"none",opacity:out?.5:1}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:8}}>
+            <span style={{display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:600,minWidth:0,flex:"1 1 auto"}}>
+              <span style={{width:11,height:11,borderRadius:3,flexShrink:0,background:colorOf(s),display:"flex",alignItems:"center",justifyContent:"center",fontSize:7,color:"#0009"}}>{g}</span>
+              <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{CIVS[civOf(s)].name}</span></span>
+            <span style={{fontFamily:T.mono,fontSize:15,fontWeight:700,flexShrink:0}}>{scoreOf(s)}</span></div>
+          <div style={{fontSize:9.5,color:T.muted,fontFamily:T.mono,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{PIECE_IDS.length*copies-placed(s)} left{out?" · out":""}{fertile===s&&!out?<span style={{color:"#8fae6b"}}> · fertile</span>:""}</div></div>);})}
+    </div>
+    <div style={{display:"flex",gap:18,flexWrap:"wrap",alignItems:"flex-start"}}>
+      <div style={{flex:"1 1 360px",maxWidth:560}}>
+        <div style={{position:"relative"}}>
+        {eventFlash&&<><div style={{position:"absolute",inset:-3,borderRadius:13,pointerEvents:"none",zIndex:6,boxShadow:`inset 0 0 0 3px ${EVT_COLOR[eventFlash.id]||T.accent}, 0 0 22px 1px ${EVT_COLOR[eventFlash.id]||T.accent}`,animation:"evglow 1.7s ease-out forwards"}}/>
+          <div style={{position:"absolute",top:8,left:8,zIndex:7,pointerEvents:"none",fontFamily:T.mono,fontSize:11,letterSpacing:1.5,padding:"4px 10px",borderRadius:7,background:"rgba(0,0,0,.6)",color:"#fff",animation:"evchip 1.8s ease-out forwards"}}>{eventFlash.name.toUpperCase()}</div></>}
+        <div onMouseLeave={()=>setHover(null)} style={{aspectRatio:"1/1",display:"grid",gridTemplateColumns:`repeat(${N},1fr)`,gridTemplateRows:`repeat(${N},1fr)`,gap:1,background:BT.grid,padding:1,borderRadius:10,boxShadow:"inset 0 0 0 1px "+BT.line,animation:eventFlash&&eventFlash.id==="quake"?"quakeShake .55s ease-in-out":"none"}}>
+          {board.map((row,r)=>row.map((v,c)=>{const k=r+","+c;let style={background:BT.cell};let inner=null;
+            if(v===-2)style={background:BT.bg};
+            else if(v===-1)style={background:BT.wall,backgroundImage:`repeating-linear-gradient(45deg,${BT.wall} 0 3px,${BT.wallH} 3px 6px)`,boxShadow:`inset 0 0 0 1px ${BT.wallH}`};
+            else if(v>0){style=pieceCellStyle(colorOf(v),pieceTex,BT.cell);const g=glyphOf(v);if(g)inner=<span style={{color:"#0007",fontSize:"0.7em",fontWeight:700}}>{g}</span>;}
+            if(v===0&&specials.has(k)){const t=TILE[specials.get(k)];inner=<span style={{color:t.col,fontSize:"0.72em",fontWeight:700}}>{t.mk}</span>;}
+            if(v===0&&infect.has(k)){style={background:BT.cell,backgroundImage:"radial-gradient(circle,rgba(124,170,72,.32),rgba(124,170,72,.08))"};inner=<span style={{color:"#9cc46a",fontSize:"0.62em",fontWeight:700,opacity:.9}}>☣</span>;}
+            if(v===0&&startMarks[k]!==undefined&&isFirst(startMarks[k])&&!done.has(startMarks[k]))inner=<span style={{position:"absolute",inset:0,background:`linear-gradient(135deg,${colorOf(startMarks[k])} 0 40%,transparent 40%)`,opacity:.55}}/>;
+            if(tentSet.has(k))style={background:tent&&tent.ok===false?"#9a4742":curCol,boxShadow:`inset 0 0 0 1px ${shade(tent&&tent.ok===false?"#9a4742":curCol,.5)}`,opacity:tent&&tent.ok===false?.75:1};
+            else if(hoverSet.has(k))style={background:hoverSet.get(k)?curCol:"#9a4742",opacity:.55};
+            const clickable=v!==-2&&(targeting||(v===0&&sel));
+            return <div key={k} onMouseEnter={()=>cellEnter(r,c)} onClick={clickable?()=>cellClick(r,c):undefined} style={{position:"relative",borderRadius:2,display:"flex",alignItems:"center",justifyContent:"center",cursor:clickable?"pointer":"default",fontSize:cellPx,...style}}>{inner}</div>;}))}
+        </div>
+        </div>
+        <div style={{fontSize:mob?11.5:12.5,color:T.ink,fontFamily:T.mono,marginTop:mob?7:9,minHeight:18}}>{guide()}</div>
+      </div>
+      <div style={{flex:"1 1 300px",maxWidth:mob?"none":430,width:mob?"100%":undefined}}>
+        {!mob&&<div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:10}}>
+          <button onClick={submit} disabled={!tent||tent.ok===false} style={{...miniBtn,opacity:tent&&tent.ok!==false?1:.4,borderColor:tent&&tent.ok!==false?curCol:T.line,color:tent&&tent.ok!==false?curCol:T.muted}}>✓ Submit</button>
+          {sel&&<button onClick={doRot} style={miniBtn}>⟳ Rotate (R)</button>}
+          {sel&&<button onClick={doFlip} style={miniBtn}>⇋ Flip (F)</button>}
+          <button onClick={()=>tent?setTent(null):undoPower()} disabled={!tent&&!pundo} style={{...miniBtn,opacity:(tent||pundo)?1:.4}}>↺ Undo</button>
+          {targeting&&<button onClick={()=>setTargeting(null)} style={{...miniBtn,color:T.accent}}>✕ Cancel</button>}
+          <button onClick={()=>setAskConcede(true)} disabled={!curHuman()||over} style={{...miniBtn,color:"#c5a37a",borderColor:"#3a3324"}}>Give up</button>
+        </div>}
+        {oPowers&&(()=>{const P=POWERS[pw];const ch=charges[cur]||0;const p=placed(cur);const early=p<POWER_MIN,late=p>=powerMax(cur);const usable=curHuman()&&!over&&ch>0&&!early&&!late;
+          return <div style={{...card,padding:mob?"8px 10px":"10px 12px",marginBottom:10,borderColor:armed||targeting?T.accent:T.line}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+              <span style={{fontFamily:T.mono,fontSize:10,color:T.accent,letterSpacing:1.5,whiteSpace:"nowrap"}}>◈ {P.name.toUpperCase()}</span>
+              <span style={{fontFamily:T.mono,fontSize:13,letterSpacing:1}}>{"●".repeat(ch)+"○".repeat(Math.max(0,P.charges-ch))}</span></div>
+            {!mob&&<div style={{fontSize:11.5,color:T.muted,margin:"4px 0 8px"}}>{P.effect}</div>}
+            <button onClick={usePower} disabled={!usable} style={{...miniBtn,width:"100%",marginTop:mob?7:0,...(mob?{padding:"10px 12px",fontSize:12.5}:{}),opacity:usable?1:.4,borderColor:usable?T.accent:T.line,color:armed?"#0c0e12":T.ink,background:armed?T.accent:THEME.panel}}>
+              {armed?"On (tap to cancel)":targeting?"Choosing target…":early?`Unlocks after ${POWER_MIN} pieces`:late?"Locked, too late now":ch>0?`Use, ${P.trigger}`:"No charges left"}</button>
+          </div>;})()}
+        {oTraits&&!mob&&<div style={{...card,padding:"8px 12px",marginBottom:10}}>
+          <span style={{fontFamily:T.mono,fontSize:10.5,color:colorOf(cur)}}>✦ {CIVS[civOf(cur)].name.toUpperCase()}</span> <span style={{fontSize:11.5,color:T.ink}}>{TRAIT[civOf(cur)][0]}</span> <span style={{fontSize:11,color:T.muted}}>,  {TRAIT[civOf(cur)][1]}</span></div>}
+        <div style={{...card,padding:mob?10:12,opacity:curHuman()?1:.5}}>
+          <div style={{fontFamily:T.mono,fontSize:11,color:T.muted,letterSpacing:1.5,marginBottom:9}}>{CIVS[civOf(cur)].name.toUpperCase()}, {curHuman()?"YOUR PIECES":scheme}</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:mob?8:7}}>
+            {PIECE_IDS.map(id=>{const u=used[cur]?.[id]||0;const gone=u>=copies;const left=copies-u;const p=PICTURE[id];const isSel=selId===id;const px=mob?10:8;
+              return(<div key={id} onClick={()=>!gone&&pickPiece(id)} title={id} style={{position:"relative",padding:mob?7:5,borderRadius:7,cursor:gone||!curHuman()?"default":"pointer",background:isSel?shade(curCol,-0.6):T.cell,border:`1px solid ${isSel?curCol:T.line}`,opacity:gone?.14:1}}>
+                {copies>1&&left>0&&<span style={{position:"absolute",top:-5,right:-4,fontFamily:T.mono,fontSize:9,background:T.bg,border:`1px solid ${T.line}`,borderRadius:6,padding:"0 3px",color:T.muted}}>×{left}</span>}
+                <div style={{display:"grid",gridTemplateColumns:`repeat(${p.c},${px}px)`,gridTemplateRows:`repeat(${p.r},${px}px)`,gap:1}}>{p.on.map((o,i)=><div key={i} style={{width:px,height:px,borderRadius:1,background:o?curCol:"transparent"}}/>)}</div></div>);})}
+          </div>
+        </div>
+        {mob&&<button onClick={()=>setAskConcede(true)} disabled={!curHuman()||over} style={{...miniBtn,marginTop:10,color:"#c5a37a",borderColor:"#3a3324"}}>Give up</button>}
+      </div>
+    </div>
+    {/* Mobile: actions live in a fixed bottom bar so Submit is always reachable. */}
+    {mob&&<div style={{position:"fixed",left:0,right:0,bottom:0,zIndex:40,background:T.panel,borderTop:`1px solid ${T.line}`,padding:"8px 10px calc(8px + env(safe-area-inset-bottom))"}}>
+      {tent&&<div style={{display:"flex",gap:6,justifyContent:"center",marginBottom:7}}>
+        {[["←",0,-1],["↑",-1,0],["↓",1,0],["→",0,1]].map(([lab,dr,dc])=>(
+          <button key={lab} onClick={()=>nudge(dr,dc)} style={{...miniBtn,padding:"9px 0",fontSize:15,flex:"1 1 0",maxWidth:74}}>{lab}</button>))}
+        <span style={{alignSelf:"center",fontFamily:T.mono,fontSize:10.5,color:tent.ok===false?"#c97a74":"#7fae6b",whiteSpace:"nowrap",paddingLeft:4}}>{tent.ok===false?"illegal":"legal"}</span></div>}
+      <div style={{display:"flex",gap:6}}>
+        <button onClick={submit} disabled={!tent||tent.ok===false} style={{...miniBtn,flex:"2 1 0",padding:"12px 8px",fontSize:13.5,opacity:tent&&tent.ok!==false?1:.4,borderColor:tent&&tent.ok!==false?curCol:T.line,color:tent&&tent.ok!==false?curCol:T.muted}}>✓ Submit</button>
+        <button onClick={doRot} disabled={!sel} style={{...miniBtn,flex:"1 1 0",padding:"12px 6px",fontSize:13.5,opacity:sel?1:.4}}>⟳</button>
+        <button onClick={doFlip} disabled={!sel} style={{...miniBtn,flex:"1 1 0",padding:"12px 6px",fontSize:13.5,opacity:sel?1:.4}}>⇋</button>
+        {targeting
+          ?<button onClick={()=>setTargeting(null)} style={{...miniBtn,flex:"1 1 0",padding:"12px 6px",fontSize:13.5,color:T.accent}}>✕</button>
+          :<button onClick={()=>tent?setTent(null):undoPower()} disabled={!tent&&!pundo} style={{...miniBtn,flex:"1 1 0",padding:"12px 6px",fontSize:13.5,opacity:(tent||pundo)?1:.4}}>↺</button>}
+      </div>
+    </div>}
+    {mob&&<div style={{height:tent?122:70}}/>}
+    {toast&&<div style={{...toastStyle,...(mob?{bottom:tent?136:84}:{})}}>{toast}</div>}
+    {settingsModal}
+    {showInfo&&<div style={overlay} onClick={()=>setShowInfo(false)}><div onClick={e=>e.stopPropagation()} style={{...card,maxWidth:560,maxHeight:"80vh",overflow:"auto"}}>
+      <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}><b style={{fontFamily:THEME.display,fontSize:18}}>How to play</b><button onClick={()=>setShowInfo(false)} style={ghostBtn}>close</button></div><Pedia/></div></div>}
+    {askConcede&&<div style={overlay} onClick={()=>setAskConcede(false)}><div onClick={e=>e.stopPropagation()} style={{...card,padding:"24px 28px",textAlign:"center",maxWidth:340}}>
+      <div style={{fontFamily:T.display,fontSize:21,marginBottom:6}}>Bend the knee?</div>
+      <div style={{fontSize:13,color:T.muted,marginBottom:18,lineHeight:1.5}}>{CIVS[civOf(turn)].name} stops growing for good. The others carry on without you. No takebacks.</div>
+      <div style={{display:"flex",gap:8,justifyContent:"center"}}>
+        <button onClick={()=>{setAskConcede(false);concede();}} style={{...primaryBtn,background:"#c5a37a"}}>Bend the knee</button>
+        <button onClick={()=>setAskConcede(false)} style={{...miniBtn,padding:"11px 18px"}}>Fight on</button></div></div></div>}
+    {over&&overHidden&&<button onClick={()=>setOverHidden(false)} style={{...primaryBtn,position:"fixed",bottom:22,left:"50%",transform:"translateX(-50%)",zIndex:55}}>Results</button>}
+    {over&&!overHidden&&(()=>{const anyHuman=seatsN.some(s=>seats[s-1].kind==="human");const won=seats[winner-1]?.kind==="human";
+      const winL=["You smothered the competition. Masterful.","Total saturation. The dish belongs to you.","Out grew, out cornered, out lasted them all."];
+      const loseL=["Out grown by a machine. Humbling.","Boxed in and squeezed out. Not your plate today.","The colony collapsed. Regroup and run it back."];
+      const pool=(!anyHuman||won)?winL:loseL;const line=pool[Math.floor(overSeed*pool.length)%pool.length];
+      const status=!anyHuman?"GAME OVER":won?"VICTORY":"DEFEAT";
+      return <div style={overlay}><div style={{...card,padding:"28px 34px 30px",textAlign:"center",minWidth:300,maxWidth:390,borderColor:colorOf(winner),boxShadow:`0 0 40px ${colorOf(winner)}55`,position:"relative"}}>
+        <button onClick={()=>setOverHidden(true)} title="View the board" style={{...ghostBtn,position:"absolute",top:10,right:10,padding:"4px 10px"}}>close</button>
+        <div style={{fontFamily:T.display,fontWeight:800,fontSize:34,letterSpacing:3,color:won||!anyHuman?colorOf(winner):T.muted,marginBottom:2}}>{status}</div>
+        <div style={{fontFamily:T.display,fontSize:25,margin:"4px 0 4px",color:colorOf(winner)}}>{CIVS[civOf(winner)].name} takes the dish</div>
+        <div style={{fontSize:13,color:T.ink,marginBottom:16,lineHeight:1.5}}>{line}</div>
+        <div style={{display:"grid",gap:6,marginBottom:20}}>{standings.map((s,i)=>(<div key={s} style={{display:"flex",justifyContent:"space-between",gap:24,fontFamily:T.mono,fontSize:13,opacity:i===0?1:.6}}>
+          <span style={{display:"flex",gap:8,alignItems:"center"}}><span style={{width:6,textAlign:"right"}}>{i+1}</span><span style={{width:11,height:11,borderRadius:3,background:colorOf(s)}}/>{CIVS[civOf(s)].name}</span><b>{scoreOf(s)}</b></div>))}</div>
+        <div style={{display:"flex",gap:8,justifyContent:"center"}}><button onClick={startGame} style={primaryBtn}>Play again</button><button onClick={()=>setScreen("home")} style={{...miniBtn,padding:"11px 18px"}}>Main menu</button></div>
+      </div></div>;})()}
+  </Shell>);
+}
+
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
