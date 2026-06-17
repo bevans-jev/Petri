@@ -1,7 +1,7 @@
 # Petri
 How to play
 
-Open petri.html in any web browser (just double-click it), or play the hosted link if someone shared one.
+Open petri.html in any web browser, or use this link! https://bevans-jev.github.io/Petri/ 
 
 
 Your first piece must sit on your starting corner (the little colored wedge).
