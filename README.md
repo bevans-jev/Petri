@@ -1,5 +1,5 @@
 # Petri
-How to play
+How to play!
 
 Open petri.html in any web browser, or use this link! https://bevans-jev.github.io/Petri/ 
 
