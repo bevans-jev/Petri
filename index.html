@@ -653,7 +653,12 @@ function App(){
   function submit(){if(!tent||busy.current)return;const s=turn,id=tent.id;
     if(tent.ok===false){flash("That spot is illegal. The piece must link to your color corner to corner.");vib([12,40,12]);return;}
     if((used[s]?.[id]||0)>=copies){setTent(null);setSel(null);setSelId(null);flash("You have no more of that piece");return;}
-    busy.current=true;if(armed){setCharges(c=>({...c,[s]:(c[s]||0)-1}));setArmed(false);}
+    busy.current=true;
+    if(armed){ // Overgrow only bills you if the piece actually ate a rival square; Bridge always bills on placement
+      const overgrow=seats[s-1]?.power==="overgrow";
+      const captured=tent.cells.some(([r,c])=>board[r][c]>0&&board[r][c]!==s);
+      if(overgrow&&!captured){setArmed(false);flash("Overgrow disarmed, no rival square covered, charge kept.");}
+      else{setCharges(c=>({...c,[s]:(c[s]||0)-1}));setArmed(false);}}
     if(carnArmed){setTraitUsed(t=>({...t,[s]:true}));setCarnArmed(false);}
     commit(tent.cells,id,s);setTent(null);setSel(null);setSelId(null);vib(18);advance(s);setTimeout(()=>{busy.current=false;},80);}
   function concede(){const s=turn;const nd=new Set(done);nd.add(s);setDone(nd);setSel(null);setSelId(null);setTent(null);setTargeting(null);setArmed(false);setCarnArmed(false);setBazaarPick(false);flash(`${CIVS[civOf(s)].name} bends the knee.`);advance(s,nd);}
@@ -697,11 +702,13 @@ function App(){
     if(canPow&&pw==="reserve"&&!used2&&!L.reserved){const act=cpuPowerAction(nb,s,"reserve",L.count);
       if(act&&!L.specials.has(act.cell[0]+","+act.cell[1])){setReserved({k:act.cell[0]+","+act.cell[1],seat:s});ch[s]--;used2=true;}}
     // Morocco's Bazaar: late game, buy back the biggest spent piece, pay with the smallest leftover.
+    // Only mark the trait spent once a move actually commits below, so a still-boxed-in
+    // Morocco rolls the whole trade back (myUsed + traitUsed) instead of wasting it.
+    let bazaarUsed=false;
     if(oTraits&&civOf(s)==="morocco"&&!L.traitUsed[s]&&pc>=10){
       let rec=null;for(const id of PIECE_IDS)if((myUsed[id]||0)>0&&PSIZE[id]>=4&&(!rec||PSIZE[id]>PSIZE[rec]))rec=id;
       let sur=null;for(const id of PIECE_IDS)if(id!==rec&&(myUsed[id]||0)<L.copies&&(!sur||PSIZE[id]<PSIZE[sur]))sur=id;
-      if(rec&&sur&&PSIZE[rec]>PSIZE[sur]){myUsed[rec]--;myUsed[sur]=L.copies;setTraitUsed(t=>({...t,[s]:true}));
-        flash(`${CIVS[civOf(s)].name} works the Bazaar: reclaims a piece, trades away its smallest.`);}}
+      if(rec&&sur&&PSIZE[rec]>PSIZE[sur]){myUsed[rec]--;myUsed[sur]=L.copies;bazaarUsed=true;}}
     let mv=cpuMove(nb,myUsed,s,first,startOf(s),brain,L.copies,bx);
     if(canPow&&pw==="bridge"&&!used2&&(!mv||mv.cells.length<=3)){const mv2=cpuMove(nb,myUsed,s,first,startOf(s),brain,L.copies,{...bx,edge:true});
       if(mv2&&(!mv||mv2.cells.length>mv.cells.length)){mv=mv2;ch[s]--;used2=true;}}
@@ -719,6 +726,7 @@ function App(){
     applySpecials(mv.cells,s,nb,sp,{shield,burst,bastion});
     setBoard(nb);setSpecials(sp);if(used2)setCharges(ch);
     setUsed(u=>({...u,[s]:{...myUsed,[mv.id]:(myUsed[mv.id]||0)+1}}));
+    if(bazaarUsed){setTraitUsed(t=>({...t,[s]:true}));flash(`${CIVS[civOf(s)].name} works the Bazaar: reclaims a piece, trades away its smallest.`);}
     setLast(l=>({...l,[s]:mv.id}));advance(s);
     }catch(e){advance(s);}}
   useEffect(()=>{if(screen!=="game"||over)return;const s=turn;if(done.has(s))return;
