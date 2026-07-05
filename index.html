@@ -2,9 +2,9 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"/>
 <title>PETRI</title>
-<style>html,body{margin:0;padding:0;background:#0c0e12;min-height:100%}</style>
+<style>html,body{margin:0;padding:0;background:#0c0e12;min-height:100%;overscroll-behavior-y:contain;-webkit-tap-highlight-color:transparent}</style>
 <script crossorigin src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js"></script>
 <script crossorigin src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.24.7/babel.min.js"></script>
@@ -60,15 +60,21 @@ const CIVS = {
   malta:{name:"Malta",region:"Mediterranean",color:"#CF7A3A"},
   dominican:{name:"Dominican Republic",region:"Caribbean",color:"#C8516E"},
   jamaica:{name:"Senegal",region:"West Africa",color:"#9DB833"},
+  chile:{name:"Chile",region:"S. America",color:"#4FB6D6"},
+  morocco:{name:"Morocco",region:"North Africa",color:"#6B5BD2"},
+  brazil:{name:"Brazil",region:"S. America",color:"#DE3FA6"},
 };
 const CIV_IDS = Object.keys(CIVS);
 const TRAIT = {
-  kyrgyzstan:["Spore Burst","its Teleport tiles spawn 2 squares, not 1"], botswana:["Bomb Shield","Bomb tiles never remove its squares"],
-  lithuania:["Outpost","plants 1 extra square out toward mid-board at the start"], guatemala:["Late Bloomer","can use its power far later into the game than anyone else"],
-  colombia:["Stockpile","gets one extra power charge"], tonga:["Big Bonus","+1 point for every 5-square piece it places"],
-  malta:["Bastion","Wall tiles can never turn its squares into walls"],
-  dominican:["Cash Crop","scores 1 bonus point for every 4 pieces it places"],
-  jamaica:["Long Coast","scores 1 bonus point for every long, stretched piece it places (4 or more cells in a straight line)"],
+  kyrgyzstan:["Silk Road","its Teleport tiles spawn 2 squares, not 1"], botswana:["Hard as Diamond","Bomb tiles never remove its squares"],
+  lithuania:["Trailblazer","plants 1 extra square out toward mid-board at the start"], guatemala:["Long Count","can use its power far later into the game than anyone else"],
+  colombia:["Second Harvest","gets one extra power charge"], tonga:["Big Hits","+1 point for every 5-square piece it places"],
+  malta:["The Unconquered","Wall tiles can never turn its squares into walls"],
+  dominican:["Merengue","scores 1 bonus point for every 4 pieces it places"],
+  jamaica:["Baobab","scores 1 bonus point for every long, stretched piece it places (4 or more cells in a straight line)"],
+  chile:["Miner","walls count as its own color for corner links, so it can grow off the map's walls"],
+  morocco:["The Bazaar","once per game, trades back one piece it already played (to play again) at the cost of its smallest unused piece"],
+  brazil:["Carnival","once per game, one of its pieces may link corner to corner off ANY color, not just its own"],
 };
 
 /* powers (mainstream names, plain effects) */
@@ -80,6 +86,9 @@ const POWERS = {
   graft:{name:"Graft",charges:1,target:"enemy",picks:1,trigger:"tap, then click a rival square next to yours",effect:"Steals one rival square that touches your color, turning it into yours."},
   spore:{name:"Spore",charges:1,target:"auto",picks:0,trigger:"tap to sprout",effect:"Instantly sprouts 2 new squares on open corners of your colony."},
   blight:{name:"Blight",charges:1,target:"enemyAny",picks:1,trigger:"tap, then click any rival square",effect:"Removes one rival square anywhere on the board."},
+  reserve:{name:"Reserve",charges:1,target:"empty",picks:1,trigger:"tap, then click an empty square",effect:"Flags that square: nobody else can build on it until your next turn."},
+  terraform:{name:"Terraform",charges:1,target:"wall",picks:1,trigger:"tap, then click a wall square",effect:"Demolishes that wall into open ground, permanently."},
+  overgrow:{name:"Overgrow",charges:1,target:"arm2",picks:0,trigger:"tap, then place a piece",effect:"That piece may cover exactly one rival square, capturing it."},
 };
 const POWER_IDS = Object.keys(POWERS);
 
@@ -165,19 +174,30 @@ const cloneB=bd=>bd.map(row=>row.slice());
 // THE core rule. A placement is legal iff: every cell is empty and in bounds;
 // no cell touches own color edge to edge (unless Bridge armed); and either it
 // covers the start (first piece) or touches own color at a corner.
-function valid(board,cells,seat,first,start,allowEdge){const N=board.length;
-  for(const [r,c] of cells){if(!inB(r,c,N)||board[r][c]!==0)return false;}
+// `x` bends the rules per trait/power: {edge:Bridge armed, mine:Chile walls
+// count as own color at corners, anyC:Brazil any color counts at corners,
+// og:Overgrow may cover exactly one rival cell, blk:Set of reserved cells
+// this seat may not use}.
+function valid(board,cells,seat,first,start,x){x=x||{};const N=board.length;let og=0;
+  for(const [r,c] of cells){if(!inB(r,c,N))return false;
+    if(x.blk&&x.blk.has(r+","+c))return false;
+    const v=board[r][c];if(v===0)continue;
+    if(x.og&&v>0&&v!==seat&&og===0){og=1;continue;} // Overgrow: one rival cell may be covered
+    return false;}
   if(first)return cells.some(([r,c])=>r===start[0]&&c===start[1]);
-  if(allowEdge){for(const [r,c] of cells)for(const [dr,dc] of [...ORTH,...DIAG]){const a=r+dr,b=c+dc;if(inB(a,b,N)&&board[a][b]===seat)return true;}return false;}
+  if(x.edge){for(const [r,c] of cells)for(const [dr,dc] of [...ORTH,...DIAG]){const a=r+dr,b=c+dc;if(inB(a,b,N)&&board[a][b]===seat)return true;}return false;}
   for(const [r,c] of cells)for(const [dr,dc] of ORTH){const a=r+dr,b=c+dc;if(inB(a,b,N)&&board[a][b]===seat)return false;}
-  for(const [r,c] of cells)for(const [dr,dc] of DIAG){const a=r+dr,b=c+dc;if(inB(a,b,N)&&board[a][b]===seat)return true;}
+  for(const [r,c] of cells)for(const [dr,dc] of DIAG){const a=r+dr,b=c+dc;if(!inB(a,b,N))continue;const v=board[a][b];
+    if(v===seat)return true;
+    if(x.mine&&v===-1)return true;   // Miner: the map's walls are your scaffolding
+    if(x.anyC&&v>0)return true;}     // Carnival: everyone's network is your dance floor
   return false;}
 // Can this seat place anything at all? Tries smallest pieces first and exits
 // on the first hit, so "you are out" checks stay fast even on mega boards.
-function anyMove(board,used,seat,first,start,copies){copies=copies||1;const N=board.length;
+function anyMove(board,used,seat,first,start,copies,x){copies=copies||1;const N=board.length;
   const ids=PIECE_IDS.filter(id=>(used[id]||0)<copies).sort((a,b)=>PSIZE[a]-PSIZE[b]);
   for(const id of ids)for(const o of orients(PIECES[id])){const mR=Math.max(...o.map(c=>c[0])),mC=Math.max(...o.map(c=>c[1]));
-    for(let ar=0;ar<=N-1-mR;ar++)for(let ac=0;ac<=N-1-mC;ac++)if(valid(board,place(o,ar,ac),seat,first,start))return true;}
+    for(let ar=0;ar<=N-1-mR;ar++)for(let ac=0;ac<=N-1-mC;ac++)if(valid(board,place(o,ar,ac),seat,first,start,x))return true;}
   return false;}
 // Every open growth corner belonging to opponents. Used to measure denial:
 // how many of these a candidate move would erase.
@@ -191,7 +211,7 @@ function oppCornerSet(board,seat){const N=board.length,set=new Set();
 // Pick a move for a CPU seat. Scores every legal placement on size, future
 // corners (nc), enemy contact (ct), denial (deny), reach and frontier, with
 // per-brain weights, then runs a small lookahead over the top candidates.
-function cpuMove(board,used,seat,first,start,brain,copies,edge){copies=copies||1;const N=board.length,H=N/2;
+function cpuMove(board,used,seat,first,start,brain,copies,x){copies=copies||1;const N=board.length,H=N/2;x=x||{};
   const top=start[0]<H,left=start[1]<H,remaining=PIECE_IDS.filter(id=>(used[id]||0)<copies);
   const ids=[...remaining].sort((a,b)=>PSIZE[b]-PSIZE[a]);
   const hints=(brain==="expert"||brain==="petri")?oppCornerSet(board,seat):null,late=remaining.length<=6;
@@ -199,9 +219,10 @@ function cpuMove(board,used,seat,first,start,brain,copies,edge){copies=copies||1
   for(const id of ids){if(cand.length>cap)break;
     for(const o of orients(PIECES[id])){const mR=Math.max(...o.map(c=>c[0])),mC=Math.max(...o.map(c=>c[1]));
       for(let ar=0;ar<=N-1-mR;ar++)for(let ac=0;ac<=N-1-mC;ac++){if(ck++>240000)break;
-        const cells=place(o,ar,ac);if(!valid(board,cells,seat,first,start,edge))continue;
-        let nc=0,ct=0,own=0,reach=0,deny=0,front=0;
+        const cells=place(o,ar,ac);if(!valid(board,cells,seat,first,start,x))continue;
+        let nc=0,ct=0,own=0,reach=0,deny=0,front=0,cap2=0;
         for(const [r,c] of cells){reach=Math.max(reach,Math.max(Math.abs(r-start[0]),Math.abs(c-start[1])));
+          if(board[r][c]>0&&board[r][c]!==seat)cap2++; // Overgrow capture: worth 2 (them -1, you +1)
           if((r<H)===top&&(c<H)===left)own++;if(hints&&hints.has(r+","+c))deny++;
           front+=Math.max(0,8-Math.min(Math.abs(r-H),Math.abs(c-H)));
           for(const [dr,dc] of DIAG){const a=r+dr,b=c+dc;if(inB(a,b,N)){const v=board[a][b];if(v===0)nc++;else if(v>0&&v!==seat)ct++;}}}
@@ -211,7 +232,7 @@ function cpuMove(board,used,seat,first,start,brain,copies,edge){copies=copies||1
         else if(brain==="hard")s=late?sz*12+nc*6+deny*2+rnd:sz*10+nc*6+deny*3+fr*0.8+rnd;
         else if(brain==="expert")s=late?sz*13+nc*5+ct*5+rnd:sz*10+nc*7+ct*5+deny*4+reach*1.0+rnd;
         else s=late?sz*15+nc*7+deny*4+rnd:sz*10+nc*8+ct*3+deny*6+reach*0.5+rnd;
-        cand.push({id,cells,score:s});}}}
+        cand.push({id,cells,score:s+cap2*14});}}}
   if(!cand.length)return null;cand.sort((a,b)=>b.score-a.score);
   const LK={hard:{d:10,fw:2.2,ow:0.5},expert:{d:14,fw:2.0,ow:0.8},petri:{d:18,fw:3.0,ow:1.0}};
   const lk=LK[brain];if(!lk||late)return cand[0];
@@ -288,14 +309,20 @@ function cpuPowerAction(board,seat,pw,count){const N=board.length;
       let ownAdj=false,opn=0;for(const [dr,dc] of [...ORTH,...DIAG]){const a=r+dr,b=c+dc;if(inB(a,b,N)){if(board[a][b]===0)opn++;else if(board[a][b]===seat&&Math.abs(dr)+Math.abs(dc)===1)ownAdj=true;}}
       if(ownAdj)continue;const sc=opn+Math.random()*2;if(sc>bs){bs=sc;best=[r,c];}}
     return best?{type:"seed",cell:best}:null;}
-  if(pw==="block"){const sc={};for(let r=0;r<N;r++)for(const v of board[r])if(v>0)sc[v]=(sc[v]||0)+1;
+  if(pw==="block"||pw==="reserve"){const sc={};for(let r=0;r<N;r++)for(const v of board[r])if(v>0)sc[v]=(sc[v]||0)+1;
     let lead=null,ls=-1;for(let i=1;i<=count;i++){if(i===seat)continue;if((sc[i]||0)>ls){ls=sc[i]||0;lead=i;}}
     if(lead==null)return null;let best=null;
     for(let r=0;r<N&&!best;r++)for(let c=0;c<N&&!best;c++){if(board[r][c]!==0)continue;let d=false,e=false;
       for(const [dr,dc] of DIAG){const a=r+dr,b=c+dc;if(inB(a,b,N)&&board[a][b]===lead)d=true;}
       for(const [dr,dc] of ORTH){const a=r+dr,b=c+dc;if(inB(a,b,N)&&board[a][b]===lead)e=true;}
       if(d&&!e)best=[r,c];}
-    return best?{type:"block",cell:best}:null;}
+    return best?{type:pw,cell:best}:null;}
+  if(pw==="terraform"){ // find a wall that, once open ground, becomes a fresh growth corner for us
+    for(let r=0;r<N;r++)for(let c=0;c<N;c++){if(board[r][c]!==-1)continue;let d=false,e=false;
+      for(const [dr,dc] of DIAG){const a=r+dr,b=c+dc;if(inB(a,b,N)&&board[a][b]===seat)d=true;}
+      for(const [dr,dc] of ORTH){const a=r+dr,b=c+dc;if(inB(a,b,N)&&board[a][b]===seat)e=true;}
+      if(d&&!e)return{type:"terraform",cell:[r,c]};}
+    return null;}
   return null;}
 
 /* Shared board helpers (pure; used by both human powers and CPU power logic). */
@@ -374,7 +401,7 @@ const overlay={position:"fixed",inset:0,background:"rgba(6,8,11,.78)",display:"f
 function Shell({children,wide,theme}){const th=theme||THEMES.dark;
   const vars={"--bg":th.bg,"--panel":th.panel,"--line":th.line,"--grid":th.grid,"--cell":th.cell,"--wall":th.wall,"--wallH":th.wallH,"--ink":th.ink,"--muted":th.muted,"--accent":th.accent,"--btnInk":th.btnInk};
   return(<div style={{...vars,minHeight:"100%",background:th.bg,color:th.ink,fontFamily:"'Hanken Grotesk',system-ui,sans-serif",padding:"clamp(10px,2.5vw,22px) clamp(8px,2.2vw,18px) 40px",transition:"background .3s,color .3s"}}>
-  <style>{`@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;800&family=Hanken+Grotesk:wght@400;500;600&family=Space+Mono&display=swap'); *{box-sizing:border-box} button{font-family:inherit;color:inherit} select{outline:none} @keyframes evglow{0%{opacity:.95}65%{opacity:.5}100%{opacity:0}} @keyframes evchip{0%{opacity:0;transform:translateY(-4px)}12%{opacity:1;transform:translateY(0)}75%{opacity:1}100%{opacity:0}} @keyframes quakeShake{0%,100%{transform:translate(0,0)}15%{transform:translate(-3px,2px)}30%{transform:translate(3px,-2px)}45%{transform:translate(-3px,-1px)}60%{transform:translate(2px,2px)}80%{transform:translate(-1px,1px)}}`}</style>
+  <style>{`@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;800&family=Hanken+Grotesk:wght@400;500;600&family=Space+Mono&display=swap'); *{box-sizing:border-box;-webkit-tap-highlight-color:transparent} button{font-family:inherit;color:inherit;touch-action:manipulation;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none} select{outline:none} .petri-board-cells{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none} @media (max-width:700px){select{font-size:16px !important;min-height:40px}} @keyframes evglow{0%{opacity:.95}65%{opacity:.5}100%{opacity:0}} @keyframes evchip{0%{opacity:0;transform:translateY(-4px)}12%{opacity:1;transform:translateY(0)}75%{opacity:1}100%{opacity:0}} @keyframes quakeShake{0%,100%{transform:translate(0,0)}15%{transform:translate(-3px,2px)}30%{transform:translate(3px,-2px)}45%{transform:translate(-3px,-1px)}60%{transform:translate(2px,2px)}80%{transform:translate(-1px,1px)}}`}</style>
   <div style={{maxWidth:wide?940:700,margin:"0 auto"}}>{children}</div></div>);}
 function Title({small}){const T=THEME;return(<div style={{textAlign:small?"left":"center",marginBottom:small?0:18}}>
   <div style={{fontFamily:T.display,fontWeight:800,fontSize:small?22:42,letterSpacing:small?2:5,color:T.ink}}>PETRI</div>
@@ -445,12 +472,52 @@ function App(){
   const [opts,setOpts]=useState({powers:false,traits:false,events:false });
   const [scheme,setScheme]=useState("SCHEMING…");
   const [copies,setCopies]=useState(1);const [pundo,setPundo]=useState(null);const [overHidden,setOverHidden]=useState(false);
-  const [boardTheme,setBoardTheme]=useState("dark");const [pieceTex,setPieceTex]=useState("cells");const [showSettings,setShowSettings]=useState(false);
-  // Track viewport width; `mob` flips the game screen into the single-column
+  const [boardTheme,setBoardTheme]=useState("dark");const [pieceTex,setPieceTex]=useState("flat");const [showSettings,setShowSettings]=useState(false);
+  // Track viewport size; `mob` flips the game screen into the single-column
   // touch layout (big buttons, on-screen rotate/flip, condensed panels).
+  // Uses the smaller of width/height so a phone held sideways still gets the
+  // touch layout instead of falling back to the cramped desktop one.
   const [vw,setVw]=useState(typeof window!=="undefined"?window.innerWidth:1024);
-  useEffect(()=>{const h=()=>setVw(window.innerWidth);window.addEventListener("resize",h);return()=>window.removeEventListener("resize",h);},[]);
-  const mob=vw<700;
+  const [vh,setVh]=useState(typeof window!=="undefined"?window.innerHeight:768);
+  useEffect(()=>{const h=()=>{setVw(window.innerWidth);setVh(window.innerHeight);};window.addEventListener("resize",h);window.addEventListener("orientationchange",h);return()=>{window.removeEventListener("resize",h);window.removeEventListener("orientationchange",h);};},[]);
+  const mob=Math.min(vw,vh)<700;
+  // Pinch-to-zoom & drag-to-pan for the board (touch only). Big maps (up to
+  // 34x34) render every cell far too small to tap on a phone, so the board
+  // itself needs to zoom, on top of the existing tap+nudge fallback. Live
+  // gesture math writes straight to the DOM via refs (no React re-render per
+  // touch frame, which matters once you're pushing 1000+ cell divs); state
+  // only commits at the end of a gesture so any unrelated re-render (picking
+  // a piece, opening a modal) still shows the right zoom instead of snapping.
+  const [zoom,setZoom]=useState(1);const [pan,setPan]=useState({x:0,y:0});
+  const boardWrapRef=useRef(null);const transformRef=useRef(null);
+  const zoomRef=useRef(1);const panRef=useRef({x:0,y:0});const mobRef=useRef(mob);
+  useEffect(()=>{zoomRef.current=zoom;panRef.current=pan;mobRef.current=mob;},[zoom,pan,mob]);
+  const clampPan=(z,p)=>{if(z<=1)return{x:0,y:0};const wrap=boardWrapRef.current;const max=wrap?wrap.clientWidth*(z-1)/2:0;
+    return{x:Math.max(-max,Math.min(max,p.x)),y:Math.max(-max,Math.min(max,p.y))};};
+  const applyTransform=(z,p)=>{if(transformRef.current)transformRef.current.style.transform=`translate(${p.x}px,${p.y}px) scale(${z})`;};
+  const zoomBy=f=>{const z=Math.max(1,Math.min(3,Math.round(zoomRef.current*f*100)/100));const p=clampPan(z,panRef.current);
+    zoomRef.current=z;panRef.current=p;applyTransform(z,p);setZoom(z);setPan(p);};
+  const resetZoom=()=>{zoomRef.current=1;panRef.current={x:0,y:0};applyTransform(1,{x:0,y:0});setZoom(1);setPan({x:0,y:0});};
+  useEffect(()=>{const el=boardWrapRef.current;if(!el)return;
+    const dist=t=>Math.hypot(t[0].clientX-t[1].clientX,t[0].clientY-t[1].clientY);
+    const g={mode:null,startDist:0,startZoom:1,startPan:{x:0,y:0},startX:0,startY:0};
+    const onStart=e=>{if(!mobRef.current)return;
+      if(e.touches.length===2){g.mode="pinch";g.startDist=dist(e.touches)||1;g.startZoom=zoomRef.current;g.startPan={...panRef.current};if(transformRef.current)transformRef.current.style.transition="none";e.preventDefault();}
+      else if(e.touches.length===1&&zoomRef.current>1){g.mode="pan";g.startX=e.touches[0].clientX;g.startY=e.touches[0].clientY;g.startPan={...panRef.current};if(transformRef.current)transformRef.current.style.transition="none";}
+      else g.mode=null;};
+    const onMove=e=>{if(!g.mode)return;
+      if(g.mode==="pinch"&&e.touches.length===2){const z=Math.max(1,Math.min(3,g.startZoom*(dist(e.touches)/g.startDist)));
+        const p=clampPan(z,g.startPan);zoomRef.current=z;panRef.current=p;applyTransform(z,p);e.preventDefault();}
+      else if(g.mode==="pan"&&e.touches.length===1){const dx=e.touches[0].clientX-g.startX,dy=e.touches[0].clientY-g.startY;
+        const p=clampPan(zoomRef.current,{x:g.startPan.x+dx,y:g.startPan.y+dy});panRef.current=p;applyTransform(zoomRef.current,p);e.preventDefault();}};
+    const onEnd=()=>{if(g.mode){if(transformRef.current)transformRef.current.style.transition="transform .18s ease-out";setZoom(zoomRef.current);setPan(panRef.current);g.mode=null;}};
+    el.addEventListener("touchstart",onStart,{passive:false});el.addEventListener("touchmove",onMove,{passive:false});
+    el.addEventListener("touchend",onEnd,{passive:true});el.addEventListener("touchcancel",onEnd,{passive:true});
+    return()=>{el.removeEventListener("touchstart",onStart);el.removeEventListener("touchmove",onMove);el.removeEventListener("touchend",onEnd);el.removeEventListener("touchcancel",onEnd);};
+  },[screen]);
+  // Tiny haptic buzzes on mobile only: quick tick for a legal drop/nudge, a
+  // short double-buzz for illegal, a firmer pulse on submit.
+  const vib=p=>{if(!mob)return;try{navigator.vibrate&&navigator.vibrate(p);}catch(e){}};
   const [infect,setInfect]=useState(()=>new Set());const [eventFlash,setEventFlash]=useState(null);
   const [evtPick,setEvtPick]=useState({meteor:true,quake:true,bloom:true,infection:true});
   const evtClock=useRef(0);const bannerT=useRef(null);const evtTurns=useRef(0);
@@ -474,9 +541,22 @@ function App(){
   const POWER_MIN=4,POWER_MAX=13; // powers usable only between your 4th and 13th placement
   const powerMax=s=>POWER_MAX+(oTraits&&civOf(s)==="guatemala"?9:0);
   const placed=s=>Object.values(used[s]||{}).reduce((a,b)=>a+b,0);
+  // One-shot trait state: Brazil's Carnival (arm, consumed on placement) and
+  // Morocco's Bazaar (piece-tray pick mode). `reserved` holds the single cell
+  // flagged by the Reserve power: {k:"r,c", seat} until that seat's next turn.
+  const [traitUsed,setTraitUsed]=useState({});
+  const [carnArmed,setCarnArmed]=useState(false);const [bazaarPick,setBazaarPick]=useState(false);
+  const [reserved,setReserved]=useState(null);
+  const mineOf=useCallback(s=>opts.traits&&civOf(s)==="chile",[opts.traits,civOf]);
+  const blockedFor=s=>reserved&&reserved.seat!==s?new Set([reserved.k]):null;
+  // Rule-bending options for the current human's placement: Bridge/Overgrow
+  // arm through the same `armed` flag but bend different rules; Carnival and
+  // Miner come from traits; blk enforces a rival's Reserve flag.
+  const humanX=()=>{const pw2=seats[turn-1]?.power;
+    return{edge:armed&&pw2==="bridge",og:armed&&pw2==="overgrow",anyC:carnArmed,mine:mineOf(turn),blk:blockedFor(turn)};};
   
 
-  const live=useRef({});live.current={board,specials,used,turn,count,done,isFirst,startOf,copies,charges,infect,starts};
+  const live=useRef({});live.current={board,specials,used,turn,count,done,isFirst,startOf,copies,charges,infect,starts,reserved,traitUsed};
   const flash=m=>{setToast(m);clearTimeout(tT.current);tT.current=setTimeout(()=>setToast(""),2000);};
 
   function startGame(){const {board:b,specials:sp,starts:st,copies:cp}=buildMap(mapId);
@@ -486,15 +566,17 @@ function App(){
       const pr=sr+dr*d,pc=sc+dc*d;let done2=false;for(let rad=0;rad<6&&!done2;rad++)for(let a=pr-rad;a<=pr+rad&&!done2;a++)for(let e=pc-rad;e<=pc+rad&&!done2;e++)if(a>=0&&a<b.length&&e>=0&&e<b.length&&b[a][e]===0){b[a][e]=s;done2=true;}}
     setBoard(b);setSpecials(sp);setStarts(st);setCopies(cp);setUsed(u);setLast(l);setCharges(ch);setDone(new Set());
     setScheme(SCHEMES[0]);setPundo(null);setOverHidden(false);
+    setTraitUsed({});setCarnArmed(false);setBazaarPick(false);setReserved(null);
     setInfect(new Set());setEventFlash(null);clearTimeout(bannerT.current);evtClock.current=evtDelay(count);evtTurns.current=0;
-    setTurn(1);setStep(0);setAskConcede(false);setSel(null);setSelId(null);setHover(null);setTent(null);setArmed(false);setTargeting(null);setOver(false);setToast("");busy.current=false;setScreen("game");}
+    setTurn(1);setStep(0);setAskConcede(false);setSel(null);setSelId(null);setHover(null);setTent(null);setArmed(false);setTargeting(null);setOver(false);setToast("");busy.current=false;
+    zoomRef.current=1;panRef.current={x:0,y:0};setZoom(1);setPan({x:0,y:0});setScreen("game");}
 
   function pickPiece(id){if(over||!curHuman()||(used[turn]?.[id]||0)>=copies||targeting)return;setSelId(id);const o=norm(PIECES[id]);setSel(o);selRef.current=o;setTent(null);}
   // Rotating or flipping keeps the tentative piece anchored where it was and
   // re-checks legality there, so adjusting a piece never loses your spot.
   function orientKeep(f){const o=f(selRef.current);setSel(o);selRef.current=o;
     if(tent&&tent.r!==undefined){const cells=anchorWith(o,tent.r,tent.c);
-      if(cells.every(([a,b])=>inB(a,b,board.length)))setTent({cells,id:tent.id,r:tent.r,c:tent.c,ok:valid(board,cells,turn,isFirst(turn),startOf(turn),armed)});
+      if(cells.every(([a,b])=>inB(a,b,board.length)))setTent({cells,id:tent.id,r:tent.r,c:tent.c,ok:valid(board,cells,turn,isFirst(turn),startOf(turn),humanX())});
       else setTent(null);}}
   function doRot(){if(selRef.current)orientKeep(rot);}
   function doFlip(){if(selRef.current)orientKeep(flp);}
@@ -504,24 +586,25 @@ function App(){
   const anchorWith=(o,r,c)=>{let hr=o[0][0],hc=o[0][1];for(const [pr,pc] of o){if(pr<hr||(pr===hr&&pc<hc)){hr=pr;hc=pc;}}return o.map(([pr,pc])=>[r+pr-hr,c+pc-hc]);};
   const anchorCells=(r,c)=>sel?anchorWith(sel,r,c):null;
   useEffect(()=>{const cell=curCell.current;
-    if(sel&&cell&&curHuman()&&!tent&&!targeting){const cells=anchorWith(sel,cell[0],cell[1]);setHover({cells,valid:valid(board,cells,turn,isFirst(turn),startOf(turn),armed)});}
+    if(sel&&cell&&curHuman()&&!tent&&!targeting){const cells=anchorWith(sel,cell[0],cell[1]);setHover({cells,valid:valid(board,cells,turn,isFirst(turn),startOf(turn),humanX())});}
     else if(!sel)setHover(null);
-  },[sel,armed]); // eslint-disable-line
-  function cellEnter(r,c){curCell.current=[r,c];if(mob||!sel||tent||!curHuman()||targeting)return;const cells=anchorWith(sel,r,c);setHover({cells,valid:valid(board,cells,turn,isFirst(turn),startOf(turn),armed)});}
+  },[sel,armed,carnArmed]); // eslint-disable-line
+  function cellEnter(r,c){curCell.current=[r,c];if(mob||!sel||tent||!curHuman()||targeting)return;const cells=anchorWith(sel,r,c);setHover({cells,valid:valid(board,cells,turn,isFirst(turn),startOf(turn),humanX())});}
 
   function usePower(){if(!oPowers||!curHuman()||over)return;const pw=seats[turn-1].power;
     if((charges[turn]||0)<=0){flash("No charges left");return;}
     const p=placed(turn);if(p<POWER_MIN){flash(`Powers unlock after ${POWER_MIN} pieces`);return;}
     if(p>=powerMax(turn)){flash("Powers are locked this late in the game");return;}
-    const P=POWERS[pw];if(P.target==="arm"){setArmed(a=>!a);flash(armed?"Bridge off":"Bridge on, now place a piece");return;}
+    const P=POWERS[pw];if(P.target==="arm"||P.target==="arm2"){setArmed(a=>!a);
+      flash(armed?`${P.name} off`:P.target==="arm2"?"Overgrow armed, place a piece covering one rival square":"Bridge on, now place a piece");return;}
     if(P.target==="auto"){applySpore();return;}
     setSel(null);setSelId(null);setTent(null);setTargeting({id:pw,need:P.picks,picks:[]});flash(`${P.name}: ${P.trigger}`);}
   // All powers funnel through commitPower: snapshot for Undo, write the board,
   // spend the charge, clear targeting, toast. One path means one set of rules.
   function commitPower(name,nb){
-    setPundo({board:cloneB(board),charge:charges[turn]||0,seat:turn});
+    setPundo({board:cloneB(board),charge:charges[turn]||0,seat:turn,resv:reserved});
     setBoard(nb);setCharges(c=>({...c,[turn]:(c[turn]||0)-1}));setTargeting(null);flash(`${name} used, Undo to take it back`);}
-  function applySpore(){const nb=cloneB(board),opt=colonyCorners(nb,turn,specials);
+  function applySpore(){const nb=cloneB(board),opt=colonyCorners(nb,turn,specials).filter(([r,c])=>!(reserved&&reserved.seat!==turn&&reserved.k===r+","+c));
     if(!opt.length){flash("No open corners to sprout into");return;}
     for(const [r,c] of opt.sort(()=>Math.random()-0.5).slice(0,2))nb[r][c]=turn;
     commitPower("Spore",nb);}
@@ -531,14 +614,20 @@ function App(){
     else if(pw==="clear")nb[picks[0][0]][picks[0][1]]=0;           // open: own square removed
     else if(pw==="graft")nb[picks[0][0]][picks[0][1]]=turn;        // steal: rival square becomes yours
     else if(pw==="blight")nb[picks[0][0]][picks[0][1]]=0;          // snipe: rival square removed
-    commitPower(POWERS[pw].name,nb);}
-  function undoPower(){if(!pundo)return;setBoard(pundo.board);setCharges(c=>({...c,[pundo.seat]:pundo.charge}));setPundo(null);flash("Power undone");}
+    else if(pw==="terraform")nb[picks[0][0]][picks[0][1]]=0;       // demolish: wall to open ground
+    // reserve: no board change, the flag lives in `reserved` state
+    commitPower(POWERS[pw].name,nb);
+    if(pw==="reserve")setReserved({k:picks[0][0]+","+picks[0][1],seat:turn});}
+  function undoPower(){if(!pundo)return;setBoard(pundo.board);setCharges(c=>({...c,[pundo.seat]:pundo.charge}));
+    setReserved(pundo.resv||null);setPundo(null);flash("Power undone");}
   // Resolve a board click while a power is choosing its target. Guards run
   // before any board read: targeting must be active and (r,c) in bounds.
   function targetClick(r,c){const t=targeting;if(!t||!POWERS[t.id]||!inB(r,c,board.length))return;
     const P=POWERS[t.id],v=board[r][c],N=board.length;
+    if(reserved&&reserved.seat!==turn&&reserved.k===r+","+c){flash("That square is reserved");return;}
     if(P.target==="empty"&&v!==0){flash("Pick an empty square");return;}
     if(P.target==="empty"&&specials.has(r+","+c)){flash("Not on a special tile");return;}
+    if(P.target==="wall"&&v!==-1){flash("Pick a wall square");return;}
     if(P.target==="own"&&v!==turn){flash("Pick one of your own squares");return;}
     if(P.target==="enemy"){if(v<=0||v===turn){flash("Pick a rival square");return;}let adj=false;for(const [dr,dc] of [...ORTH,...DIAG]){const a=r+dr,b=c+dc;if(inB(a,b,N)&&board[a][b]===turn)adj=true;}if(!adj){flash("It must touch your own color");return;}}
     if(P.target==="enemyAny"&&(v<=0||v===turn)){flash("Pick a rival square");return;}
@@ -546,26 +635,28 @@ function App(){
     if(picks.length>=t.need)applyPower(t.id,picks);else setTargeting({...t,picks});}
   function cellClick(r,c){if(over)return;if(targeting){targetClick(r,c);return;}if(!sel||!curHuman())return;
     if((used[turn]?.[selId]||0)>=copies){flash("You have no more of that piece");setSel(null);setSelId(null);return;}
-    const cells=anchorCells(r,c);const ok=valid(board,cells,turn,isFirst(turn),startOf(turn),armed);
+    const cells=anchorCells(r,c);const ok=valid(board,cells,turn,isFirst(turn),startOf(turn),humanX());
     if(mob){ // touch: always drop the piece so it's visible, mark illegal spots red, let arrows fine-tune
-      if(!cells.every(([a,b])=>inB(a,b,board.length))){flash("Too close to the edge for this piece");return;}
-      setTent({cells,id:selId,r,c,ok});setHover(null);
+      if(!cells.every(([a,b])=>inB(a,b,board.length))){flash("Too close to the edge for this piece");vib(30);return;}
+      setTent({cells,id:selId,r,c,ok});setHover(null);vib(ok?14:[12,40,12]);
       if(!ok)flash("Red means illegal here. Nudge it with the arrows or tap elsewhere.");return;}
     if(ok){setTent({cells,id:selId,r,c,ok:true});setHover(null);}else flash("Not there, colonies only link at the corners, never flat edge to edge.");}
   // Shift the tentative piece one cell; legality re-checked live (mobile arrows).
   function nudge(dr,dc){if(!tent||tent.r===undefined||!sel)return;const r=tent.r+dr,c=tent.c+dc;
     const cells=anchorWith(sel,r,c);if(!cells.every(([a,b])=>inB(a,b,board.length)))return;
-    setTent({cells,id:tent.id,r,c,ok:valid(board,cells,turn,isFirst(turn),startOf(turn),armed)});}
+    vib(6);setTent({cells,id:tent.id,r,c,ok:valid(board,cells,turn,isFirst(turn),startOf(turn),humanX())});}
 
   function commit(cells,id,seat){const nb=cloneB(live.current.board);for(const [r,c] of cells)nb[r][c]=seat;
     const sp=new Map(live.current.specials);const {shield,burst,bastion}=traitSets(seats,opts.traits?count:0);
     const msg=applySpecials(cells,seat,nb,sp,{shield,burst,bastion});setPundo(null);
     setBoard(nb);setSpecials(sp);setUsed(u=>({...u,[seat]:{...u[seat],[id]:((u[seat]||{})[id]||0)+1}}));setLast(l=>({...l,[seat]:id}));if(msg.length)flash(msg.map(o=>o.text).join(" · "));}
   function submit(){if(!tent||busy.current)return;const s=turn,id=tent.id;
-    if(tent.ok===false){flash("That spot is illegal. The piece must link to your color corner to corner.");return;}
+    if(tent.ok===false){flash("That spot is illegal. The piece must link to your color corner to corner.");vib([12,40,12]);return;}
     if((used[s]?.[id]||0)>=copies){setTent(null);setSel(null);setSelId(null);flash("You have no more of that piece");return;}
-    busy.current=true;if(armed){setCharges(c=>({...c,[s]:(c[s]||0)-1}));setArmed(false);}commit(tent.cells,id,s);setTent(null);setSel(null);setSelId(null);advance(s);setTimeout(()=>{busy.current=false;},80);}
-  function concede(){const s=turn;const nd=new Set(done);nd.add(s);setDone(nd);setSel(null);setSelId(null);setTent(null);setTargeting(null);setArmed(false);flash(`${CIVS[civOf(s)].name} bends the knee.`);advance(s,nd);}
+    busy.current=true;if(armed){setCharges(c=>({...c,[s]:(c[s]||0)-1}));setArmed(false);}
+    if(carnArmed){setTraitUsed(t=>({...t,[s]:true}));setCarnArmed(false);}
+    commit(tent.cells,id,s);setTent(null);setSel(null);setSelId(null);vib(18);advance(s);setTimeout(()=>{busy.current=false;},80);}
+  function concede(){const s=turn;const nd=new Set(done);nd.add(s);setDone(nd);setSel(null);setSelId(null);setTent(null);setTargeting(null);setArmed(false);setCarnArmed(false);setBazaarPick(false);flash(`${CIVS[civOf(s)].name} bends the knee.`);advance(s,nd);}
 
   function advance(from,doneSet){setTimeout(()=>{const L=live.current,n=L.count,dn=doneSet||L.done;let fired=false;
     if(oEvents&&!over){try{
@@ -576,38 +667,66 @@ function App(){
       if(ev){fired=true;setEventFlash({id:ev.id,icon:ev.icon,name:ev.name});clearTimeout(bannerT.current);bannerT.current=setTimeout(()=>setEventFlash(null),1800);}
     }catch(e){}}
     const pick=()=>{const LL=live.current;for(let k=1;k<=n;k++){const cand=((from-1+k)%n)+1;if(dn.has(cand))continue;
-      if(anyMove(LL.board,LL.used[cand]||{},cand,LL.isFirst(cand),LL.startOf(cand),LL.copies)){setTurn(cand);setStep(x=>x+1);setArmed(false);setTargeting(null);return;}}
+      const blk2=LL.reserved&&LL.reserved.seat!==cand&&!dn.has(LL.reserved.seat)?new Set([LL.reserved.k]):null;
+      if(anyMove(LL.board,LL.used[cand]||{},cand,LL.isFirst(cand),LL.startOf(cand),LL.copies,{mine:mineOf(cand),blk:blk2})){
+        if(LL.reserved&&(LL.reserved.seat===cand||dn.has(LL.reserved.seat)))setReserved(null); // flag expires when it's your turn again (or you're out)
+        setTurn(cand);setStep(x=>x+1);setArmed(false);setCarnArmed(false);setBazaarPick(false);setTargeting(null);return;}}
       setOverSeed(Math.random());setOver(true);};
     if(fired)setTimeout(pick,1050);else pick();},0);}
 
   function cpuTurn(s){try{const L=live.current;let nb=cloneB(L.board);const brain=seats[s-1].brain;
-    const pc=Object.values(L.used[s]||{}).reduce((a,b)=>a+b,0),first=pc===0;
-    const ch={...L.charges};let edge=false,used2=false;
+    let myUsed={...(L.used[s]||{})};
+    const pc=Object.values(myUsed).reduce((a,b)=>a+b,0),first=pc===0;
+    const ch={...L.charges};let used2=false;
     const canPow=oPowers&&POWER_BRAINS.has(brain)&&(ch[s]||0)>0&&pc>=POWER_MIN&&pc<powerMax(s);
     const pw=seats[s-1].power;
+    // Base rule bends for this seat: Chile's walls-as-corners, minus any rival Reserve flag.
+    const bx={mine:mineOf(s),blk:L.reserved&&L.reserved.seat!==s?new Set([L.reserved.k]):null};
+    const noRes=([r,c])=>!(bx.blk&&bx.blk.has(r+","+c));
     if(canPow&&(pw==="seed"||pw==="block")){const act=cpuPowerAction(nb,s,pw,L.count);
-      if(act&&nb[act.cell[0]][act.cell[1]]===0&&!(pw==="seed"&&L.specials.has(act.cell[0]+","+act.cell[1]))){
+      if(act&&noRes(act.cell)&&nb[act.cell[0]][act.cell[1]]===0&&!(pw==="seed"&&L.specials.has(act.cell[0]+","+act.cell[1]))){
         nb[act.cell[0]][act.cell[1]]=act.type==="seed"?s:-1;ch[s]--;used2=true;}}
-    if(canPow&&pw==="spore"&&!used2){const opt=colonyCorners(nb,s,L.specials);
+    if(canPow&&pw==="spore"&&!used2){const opt=colonyCorners(nb,s,L.specials).filter(noRes);
       if(opt.length){for(const [r,c] of opt.sort(()=>Math.random()-0.5).slice(0,2))nb[r][c]=s;ch[s]--;used2=true;}}
     if(canPow&&pw==="graft"&&!used2){const tgt=enemyTouching(nb,s);if(tgt){nb[tgt[0]][tgt[1]]=s;ch[s]--;used2=true;}}
     if(canPow&&pw==="blight"&&!used2){const tgt=enemyTouching(nb,s);if(tgt){nb[tgt[0]][tgt[1]]=0;ch[s]--;used2=true;}}
-    let mv=cpuMove(nb,L.used[s]||{},s,first,startOf(s),brain,L.copies,false);
-    if(canPow&&pw==="bridge"&&!used2&&(!mv||mv.cells.length<=3)){const mv2=cpuMove(nb,L.used[s]||{},s,first,startOf(s),brain,L.copies,true);
-      if(mv2&&(!mv||mv2.cells.length>mv.cells.length)){mv=mv2;edge=true;ch[s]--;used2=true;}}
+    // Terraform: demolish a wall that would open a fresh growth corner for us.
+    if(canPow&&pw==="terraform"&&!used2){const act=cpuPowerAction(nb,s,"terraform",L.count);
+      if(act){nb[act.cell[0]][act.cell[1]]=0;ch[s]--;used2=true;}}
+    // Reserve: flag the leader's best growth corner for one round.
+    if(canPow&&pw==="reserve"&&!used2&&!L.reserved){const act=cpuPowerAction(nb,s,"reserve",L.count);
+      if(act&&!L.specials.has(act.cell[0]+","+act.cell[1])){setReserved({k:act.cell[0]+","+act.cell[1],seat:s});ch[s]--;used2=true;}}
+    // Morocco's Bazaar: late game, buy back the biggest spent piece, pay with the smallest leftover.
+    if(oTraits&&civOf(s)==="morocco"&&!L.traitUsed[s]&&pc>=10){
+      let rec=null;for(const id of PIECE_IDS)if((myUsed[id]||0)>0&&PSIZE[id]>=4&&(!rec||PSIZE[id]>PSIZE[rec]))rec=id;
+      let sur=null;for(const id of PIECE_IDS)if(id!==rec&&(myUsed[id]||0)<L.copies&&(!sur||PSIZE[id]<PSIZE[sur]))sur=id;
+      if(rec&&sur&&PSIZE[rec]>PSIZE[sur]){myUsed[rec]--;myUsed[sur]=L.copies;setTraitUsed(t=>({...t,[s]:true}));
+        flash(`${CIVS[civOf(s)].name} works the Bazaar: reclaims a piece, trades away its smallest.`);}}
+    let mv=cpuMove(nb,myUsed,s,first,startOf(s),brain,L.copies,bx);
+    if(canPow&&pw==="bridge"&&!used2&&(!mv||mv.cells.length<=3)){const mv2=cpuMove(nb,myUsed,s,first,startOf(s),brain,L.copies,{...bx,edge:true});
+      if(mv2&&(!mv||mv2.cells.length>mv.cells.length)){mv=mv2;ch[s]--;used2=true;}}
+    // Overgrow: only worth the charge if the move actually eats a rival square.
+    if(canPow&&pw==="overgrow"&&!used2){const mv2=cpuMove(nb,myUsed,s,first,startOf(s),brain,L.copies,{...bx,og:true});
+      if(mv2&&mv2.cells.some(([r,c])=>nb[r][c]>0&&nb[r][c]!==s)&&(!mv||mv2.cells.length>=mv.cells.length)){mv=mv2;ch[s]--;used2=true;}}
+    // Brazil's Carnival: when boxed in, launch one piece off a rival's network.
+    if(oTraits&&civOf(s)==="brazil"&&!L.traitUsed[s]&&(!mv||mv.cells.length<=2)){
+      const mv3=cpuMove(nb,myUsed,s,first,startOf(s),brain,L.copies,{...bx,anyC:true});
+      if(mv3&&(!mv||mv3.cells.length>mv.cells.length)){mv=mv3;setTraitUsed(t=>({...t,[s]:true}));
+        flash(`${CIVS[civOf(s)].name} joins the Carnival, dancing off a rival's colony.`);}}
     if(!mv){const nd=new Set(L.done);nd.add(s);if(used2){setBoard(nb);setCharges(ch);}setDone(nd);advance(s,nd);return;}
     for(const [r,c] of mv.cells)nb[r][c]=s;
     const sp=new Map(L.specials);const {shield,burst,bastion}=traitSets(seats,opts.traits?L.count:0);
     applySpecials(mv.cells,s,nb,sp,{shield,burst,bastion});
     setBoard(nb);setSpecials(sp);if(used2)setCharges(ch);
-    setUsed(u=>({...u,[s]:{...u[s],[mv.id]:((u[s]&&u[s][mv.id])||0)+1}}));
+    setUsed(u=>({...u,[s]:{...myUsed,[mv.id]:(myUsed[mv.id]||0)+1}}));
     setLast(l=>({...l,[s]:mv.id}));advance(s);
     }catch(e){advance(s);}}
   useEffect(()=>{if(screen!=="game"||over)return;const s=turn;if(done.has(s))return;
-    if(!anyMove(board,used[s]||{},s,isFirst(s),startOf(s),copies)){const nd=new Set(done);nd.add(s);
+    if(!anyMove(board,used[s]||{},s,isFirst(s),startOf(s),copies,{mine:mineOf(s),blk:blockedFor(s)})){const nd=new Set(done);nd.add(s);
       setDone(nd);flash(`${CIVS[civOf(s)].name} is hemmed in, out of the fight.`);advance(s,nd);return;}
     if(seats[s-1].kind==="cpu"){setScheme(SCHEMES[Math.floor(Math.random()*SCHEMES.length)]);const t=setTimeout(()=>cpuTurn(s),520);return()=>clearTimeout(t);}
   },[turn,step,screen,over]); // eslint-disable-line
+  useEffect(()=>{if(over)vib([20,40,20,40,60]);},[over]); // eslint-disable-line
 
   const scoreOf=s=>{let sq=0;for(let r=0;r<N;r++)for(let c=0;c<N;c++)if(board[r][c]===s)sq++;const u=used[s]||{};const tot=Object.values(u).reduce((a,b)=>a+b,0);const all=tot===PIECE_IDS.length*copies;let b=0;if(all){b+=15;if(last[s]==="mono")b+=5;}
     if(oTraits&&civOf(s)==="tonga"){let pent=0;for(const id of Object.keys(u))if(PSIZE[id]===5)pent+=u[id];b+=pent;}
@@ -637,15 +756,34 @@ function App(){
     </div></div>;
 
   function guide(){if(!curHuman())return`${CIVS[civOf(turn)].name} is making their move…`;
-    if(targeting){const P=POWERS[targeting.id];const left=P.picks-targeting.picks.length;const what=targeting.id==="clear"?"of your squares":targeting.id==="graft"?"rival square that touches your color":targeting.id==="blight"?"rival square anywhere":"empty square"+(left>1?"s":"");return`${P.name}: click ${left} ${what}, or Cancel.`;}
+    if(targeting){const P=POWERS[targeting.id];const left=P.picks-targeting.picks.length;const what=targeting.id==="clear"?"of your squares":targeting.id==="graft"?"rival square that touches your color":targeting.id==="blight"?"rival square anywhere":targeting.id==="terraform"?"wall square":targeting.id==="reserve"?"empty square to flag":"empty square"+(left>1?"s":"");return`${P.name}: click ${left} ${what}, or Cancel.`;}
+    if(bazaarPick)return"The Bazaar: tap a piece you've already played to reclaim it.";
     if(tent)return"Looks right? Lock it in.";
+    if(armed&&seats[turn-1]?.power==="overgrow")return"Overgrow is armed, cover exactly one rival square with this piece.";
     if(armed)return"Bridge is live, set a piece flush against your own color.";
+    if(carnArmed)return"Carnival! This piece may link off ANY color's corners.";
     if(sel)return"Spin it with R, flip with F, then drop it on the board.";
     return"Choose a piece and start spreading."+(oPowers?" Your power's waiting on the right.":"");}
+  // Brazil's Carnival: arm/disarm; consumed on the next placement.
+  function toggleCarnival(){if(traitUsed[turn]||!curHuman()||over)return;
+    setCarnArmed(a=>!a);flash(carnArmed?"Carnival off":"Carnival! Your next piece may link off any color.");}
+  // Morocco's Bazaar: enter/exit the tray-pick mode.
+  function toggleBazaar(){if(traitUsed[turn]||!curHuman()||over)return;
+    if(!bazaarPick){const anyUsedP=PIECE_IDS.some(id=>(used[turn]?.[id]||0)>0);
+      if(!anyUsedP){flash("Nothing played yet, nothing to reclaim");return;}
+      setSel(null);setSelId(null);setTent(null);}
+    setBazaarPick(p=>!p);if(!bazaarPick)flash("The Bazaar: tap a piece you've already played to reclaim it");}
+  // Execute the trade: reclaim `id`, permanently surrender the smallest unused piece.
+  function doBazaar(id){if(!bazaarPick||(used[turn]?.[id]||0)<=0)return;
+    let sur=null;for(const id2 of PIECE_IDS)if(id2!==id&&(used[turn]?.[id2]||0)<copies&&(!sur||PSIZE[id2]<PSIZE[sur]))sur=id2;
+    if(!sur){flash("No unused piece left to trade away");return;}
+    setUsed(u=>{const mu={...(u[turn]||{})};mu[id]=(mu[id]||0)-1;mu[sur]=copies;return {...u,[turn]:mu};});
+    setTraitUsed(t=>({...t,[turn]:true}));setBazaarPick(false);
+    flash(`Bazaar deal: ${id} reclaimed, ${sur} traded away for good.`);vib(14);}
 
   if(screen==="home")return(<Shell theme={STH}><Title/>
-    <div style={{display:"flex",gap:12,flexWrap:"wrap",justifyContent:"center",marginTop:10}}>
-      <button onClick={()=>setScreen("map")} style={{...primaryBtn,fontSize:17,padding:"13px 40px"}}>Play</button>
+    <div style={{display:"flex",gap:12,flexWrap:"wrap",justifyContent:"center",marginTop:10,...(mob?{flexDirection:"column",alignItems:"stretch",maxWidth:320,margin:"10px auto 0"}:{})}}>
+      <button onClick={()=>setScreen("map")} style={{...primaryBtn,fontSize:17,padding:mob?"16px 40px":"13px 40px"}}>Play</button>
       <button onClick={()=>setScreen("pedia")} style={{...ghostBtn,fontSize:14,padding:"13px 22px"}}>How to play</button>
       <button onClick={()=>setShowSettings(true)} style={{...ghostBtn,fontSize:14,padding:"13px 22px"}}>⚙ Theme</button>
     </div>
@@ -665,7 +803,7 @@ function App(){
     <div style={{marginTop:14,display:"flex",gap:10,alignItems:"center",fontSize:12.5,color:T.muted,flexWrap:"wrap"}}>
       {Object.values(TILE).map(t=><span key={t.name} style={chip(t.col)}>{t.mk} {t.name}</span>)}
       <button onClick={()=>setScreen("pedia")} style={{...ghostBtn,marginLeft:"auto"}}>what do tiles do?</button></div>
-    <button onClick={()=>setScreen("players")} style={{...primaryBtn,marginTop:20}}>Players →</button>
+    <button onClick={()=>setScreen("players")} style={{...primaryBtn,marginTop:20,...(mob?{width:"100%",padding:"15px 22px",fontSize:16}:{})}}>Players →</button>
   </Shell>);
 
   if(screen==="players"){
@@ -710,7 +848,7 @@ function App(){
             {st.kind==="cpu"&&<div style={{fontSize:11,color:T.muted,marginTop:6}}>{CPU_BRAINS[st.brain].blurb}</div>}
           </div>);})}
       </div>
-      <button onClick={startGame} style={{...primaryBtn,marginTop:18}}>Begin →</button>
+      <button onClick={startGame} style={{...primaryBtn,marginTop:18,...(mob?{width:"100%",padding:"15px 22px",fontSize:16}:{})}}>Begin →</button>
     </Shell>);}
 
   const cur=turn,curCol=colorOf(cur);const standings=[...seatsN].sort((a,b)=>scoreOf(b)-scoreOf(a));const winner=over?standings[0]:null;
@@ -719,6 +857,7 @@ function App(){
   const pw=seats[cur-1].power;const cellPx=Math.max(8,Math.round(560/N*0.5));
 
   const BT=THEMES[boardTheme]||THEMES.dark;
+  const zoomBtn={width:34,height:34,borderRadius:17,border:`1px solid ${BT.line}`,background:"rgba(12,14,18,.6)",backdropFilter:"blur(3px)",color:"#fff",fontSize:17,fontFamily:T.mono,lineHeight:"32px",padding:0,textAlign:"center",cursor:"pointer"};
   return(<Shell wide theme={BT}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
       <Title small/><div style={{display:"flex",gap:mob?5:8}}><button onClick={()=>setShowSettings(true)} style={{...ghostBtn,...(mob?{padding:"6px 9px"}:{})}}>{mob?"⚙":"⚙ theme"}</button><button onClick={()=>setShowInfo(true)} style={{...ghostBtn,...(mob?{padding:"6px 9px"}:{})}}>{mob?"?":"? help"}</button>{!mob&&<button onClick={()=>setScreen("players")} style={ghostBtn}>setup</button>}<button onClick={()=>setScreen("home")} style={{...ghostBtn,...(mob?{padding:"6px 9px"}:{})}}>quit</button></div>
@@ -735,24 +874,35 @@ function App(){
     </div>
     <div style={{display:"flex",gap:18,flexWrap:"wrap",alignItems:"flex-start"}}>
       <div style={{flex:"1 1 360px",maxWidth:560}}>
+        <div ref={boardWrapRef} style={{position:"relative",overflow:mob?"hidden":"visible",touchAction:mob?(zoom>1?"none":"pan-y"):"auto",borderRadius:10}}>
+        <div ref={transformRef} style={{transform:mob?`translate(${pan.x}px,${pan.y}px) scale(${zoom})`:"none",transformOrigin:"center center",transition:"transform .18s ease-out"}}>
         <div style={{position:"relative"}}>
         {eventFlash&&<><div style={{position:"absolute",inset:-3,borderRadius:13,pointerEvents:"none",zIndex:6,boxShadow:`inset 0 0 0 3px ${EVT_COLOR[eventFlash.id]||T.accent}, 0 0 22px 1px ${EVT_COLOR[eventFlash.id]||T.accent}`,animation:"evglow 1.7s ease-out forwards"}}/>
           <div style={{position:"absolute",top:8,left:8,zIndex:7,pointerEvents:"none",fontFamily:T.mono,fontSize:11,letterSpacing:1.5,padding:"4px 10px",borderRadius:7,background:"rgba(0,0,0,.6)",color:"#fff",animation:"evchip 1.8s ease-out forwards"}}>{eventFlash.name.toUpperCase()}</div></>}
-        <div onMouseLeave={()=>setHover(null)} style={{aspectRatio:"1/1",display:"grid",gridTemplateColumns:`repeat(${N},1fr)`,gridTemplateRows:`repeat(${N},1fr)`,gap:1,background:BT.grid,padding:1,borderRadius:10,boxShadow:"inset 0 0 0 1px "+BT.line,animation:eventFlash&&eventFlash.id==="quake"?"quakeShake .55s ease-in-out":"none"}}>
+        <div onMouseLeave={()=>setHover(null)} className="petri-board-cells" style={{aspectRatio:"1/1",display:"grid",gridTemplateColumns:`repeat(${N},1fr)`,gridTemplateRows:`repeat(${N},1fr)`,gap:1,background:BT.grid,padding:1,borderRadius:10,boxShadow:"inset 0 0 0 1px "+BT.line,animation:eventFlash&&eventFlash.id==="quake"?"quakeShake .55s ease-in-out":"none"}}>
           {board.map((row,r)=>row.map((v,c)=>{const k=r+","+c;let style={background:BT.cell};let inner=null;
             if(v===-2)style={background:BT.bg};
             else if(v===-1)style={background:BT.wall,backgroundImage:`repeating-linear-gradient(45deg,${BT.wall} 0 3px,${BT.wallH} 3px 6px)`,boxShadow:`inset 0 0 0 1px ${BT.wallH}`};
             else if(v>0){style=pieceCellStyle(colorOf(v),pieceTex,BT.cell);const g=glyphOf(v);if(g)inner=<span style={{color:"#0007",fontSize:"0.7em",fontWeight:700}}>{g}</span>;}
             if(v===0&&specials.has(k)){const t=TILE[specials.get(k)];inner=<span style={{color:t.col,fontSize:"0.72em",fontWeight:700}}>{t.mk}</span>;}
             if(v===0&&infect.has(k)){style={background:BT.cell,backgroundImage:"radial-gradient(circle,rgba(124,170,72,.32),rgba(124,170,72,.08))"};inner=<span style={{color:"#9cc46a",fontSize:"0.62em",fontWeight:700,opacity:.9}}>☣</span>;}
+            if(v===0&&reserved&&reserved.k===k)inner=<span style={{color:colorOf(reserved.seat),fontSize:"0.78em",fontWeight:700}}>⚑</span>;
             if(v===0&&startMarks[k]!==undefined&&isFirst(startMarks[k])&&!done.has(startMarks[k]))inner=<span style={{position:"absolute",inset:0,background:`linear-gradient(135deg,${colorOf(startMarks[k])} 0 40%,transparent 40%)`,opacity:.55}}/>;
             if(tentSet.has(k))style={background:tent&&tent.ok===false?"#9a4742":curCol,boxShadow:`inset 0 0 0 1px ${shade(tent&&tent.ok===false?"#9a4742":curCol,.5)}`,opacity:tent&&tent.ok===false?.75:1};
             else if(hoverSet.has(k))style={background:hoverSet.get(k)?curCol:"#9a4742",opacity:.55};
-            const clickable=v!==-2&&(targeting||(v===0&&sel));
+            const ogArm=armed&&seats[turn-1]?.power==="overgrow"; // Overgrow: rival squares become drop targets too
+            const clickable=v!==-2&&(targeting||(sel&&(v===0||(ogArm&&v>0&&v!==turn))));
             return <div key={k} onMouseEnter={()=>cellEnter(r,c)} onClick={clickable?()=>cellClick(r,c):undefined} style={{position:"relative",borderRadius:2,display:"flex",alignItems:"center",justifyContent:"center",cursor:clickable?"pointer":"default",fontSize:cellPx,...style}}>{inner}</div>;}))}
         </div>
         </div>
-        <div style={{fontSize:mob?11.5:12.5,color:T.ink,fontFamily:T.mono,marginTop:mob?7:9,minHeight:18}}>{guide()}</div>
+        </div>
+        {mob&&<div style={{position:"absolute",top:8,right:8,zIndex:8,display:"flex",flexDirection:"column",gap:5}}>
+          <button onClick={()=>zoomBy(1.4)} title="Zoom in" style={zoomBtn}>+</button>
+          <button onClick={()=>zoomBy(1/1.4)} title="Zoom out" style={zoomBtn}>−</button>
+          {zoom!==1&&<button onClick={resetZoom} title="Reset zoom" style={zoomBtn}>⤾</button>}
+        </div>}
+        </div>
+        <div style={{fontSize:mob?11.5:12.5,color:T.ink,fontFamily:T.mono,marginTop:mob?7:9,minHeight:18}}>{guide()}{mob&&zoom===1&&N>22?" · Pinch to zoom in for tight spots.":""}</div>
       </div>
       <div style={{flex:"1 1 300px",maxWidth:mob?"none":430,width:mob?"100%":undefined}}>
         {!mob&&<div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:10}}>
@@ -772,13 +922,28 @@ function App(){
             <button onClick={usePower} disabled={!usable} style={{...miniBtn,width:"100%",marginTop:mob?7:0,...(mob?{padding:"10px 12px",fontSize:12.5}:{}),opacity:usable?1:.4,borderColor:usable?T.accent:T.line,color:armed?"#0c0e12":T.ink,background:armed?T.accent:THEME.panel}}>
               {armed?"On (tap to cancel)":targeting?"Choosing target…":early?`Unlocks after ${POWER_MIN} pieces`:late?"Locked, too late now":ch>0?`Use, ${P.trigger}`:"No charges left"}</button>
           </div>;})()}
+        {/* One-shot trait actions live in their own card so Brazil and Morocco
+            can fire them on desktop or mobile alike. */}
+        {oTraits&&curHuman()&&!over&&(civOf(cur)==="brazil"||civOf(cur)==="morocco")&&(()=>{
+          const isBr=civOf(cur)==="brazil";const spent=!!traitUsed[cur];const on=isBr?carnArmed:bazaarPick;
+          return <div style={{...card,padding:mob?"8px 10px":"10px 12px",marginBottom:10,borderColor:on?colorOf(cur):T.line}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+              <span style={{fontFamily:T.mono,fontSize:10,color:colorOf(cur),letterSpacing:1.5,whiteSpace:"nowrap"}}>✦ {isBr?"CARNIVAL":"THE BAZAAR"}</span>
+              <span style={{fontFamily:T.mono,fontSize:13,letterSpacing:1}}>{spent?"○":"●"}</span></div>
+            {!mob&&<div style={{fontSize:11.5,color:T.muted,margin:"4px 0 8px"}}>{isBr?"Once per game: your next piece may link corner to corner off ANY color.":"Once per game: reclaim a piece you've played, at the cost of your smallest unused piece."}</div>}
+            <button onClick={isBr?toggleCarnival:toggleBazaar} disabled={spent} style={{...miniBtn,width:"100%",marginTop:mob?7:0,...(mob?{padding:"10px 12px",fontSize:12.5}:{}),opacity:spent?.4:1,borderColor:spent?T.line:colorOf(cur),color:on?"#0c0e12":T.ink,background:on?colorOf(cur):THEME.panel}}>
+              {spent?"Already used this game":on?(isBr?"On (tap to cancel)":"Choosing… (tap to cancel)"):isBr?"Use, then place a piece":"Use, then tap a played piece"}</button>
+          </div>;})()}
         {oTraits&&!mob&&<div style={{...card,padding:"8px 12px",marginBottom:10}}>
           <span style={{fontFamily:T.mono,fontSize:10.5,color:colorOf(cur)}}>✦ {CIVS[civOf(cur)].name.toUpperCase()}</span> <span style={{fontSize:11.5,color:T.ink}}>{TRAIT[civOf(cur)][0]}</span> <span style={{fontSize:11,color:T.muted}}>,  {TRAIT[civOf(cur)][1]}</span></div>}
-        <div style={{...card,padding:mob?10:12,opacity:curHuman()?1:.5}}>
-          <div style={{fontFamily:T.mono,fontSize:11,color:T.muted,letterSpacing:1.5,marginBottom:9}}>{CIVS[civOf(cur)].name.toUpperCase()}, {curHuman()?"YOUR PIECES":scheme}</div>
-          <div style={{display:"flex",flexWrap:"wrap",gap:mob?8:7}}>
-            {PIECE_IDS.map(id=>{const u=used[cur]?.[id]||0;const gone=u>=copies;const left=copies-u;const p=PICTURE[id];const isSel=selId===id;const px=mob?10:8;
-              return(<div key={id} onClick={()=>!gone&&pickPiece(id)} title={id} style={{position:"relative",padding:mob?7:5,borderRadius:7,cursor:gone||!curHuman()?"default":"pointer",background:isSel?shade(curCol,-0.6):T.cell,border:`1px solid ${isSel?curCol:T.line}`,opacity:gone?.14:1}}>
+        <div style={{...card,padding:mob?"10px 10px 6px":12,opacity:curHuman()?1:.5}}>
+          <div style={{fontFamily:T.mono,fontSize:11,color:T.muted,letterSpacing:1.5,marginBottom:9,display:"flex",justifyContent:"space-between"}}><span>{CIVS[civOf(cur)].name.toUpperCase()}, {curHuman()?"YOUR PIECES":scheme}</span>{mob&&<span style={{letterSpacing:0,fontSize:9.5}}>swipe →</span>}</div>
+          {/* Mobile: one swipeable row (big pieces first) so the board stays on
+              screen while you shop for a shape. Desktop keeps the wrap grid. */}
+          <div style={mob?{display:"flex",flexWrap:"nowrap",gap:9,overflowX:"auto",WebkitOverflowScrolling:"touch",paddingBottom:8,alignItems:"center"}:{display:"flex",flexWrap:"wrap",gap:7}}>
+            {(mob?[...PIECE_IDS].sort((a,b)=>PSIZE[b]-PSIZE[a]):PIECE_IDS).map(id=>{const u=used[cur]?.[id]||0;const gone=u>=copies;const left=copies-u;const p=PICTURE[id];const isSel=selId===id;const px=mob?11:8;
+              const tradeable=bazaarPick&&u>0; // Bazaar: played pieces light up as reclaim targets
+              return(<div key={id} onClick={()=>bazaarPick?(tradeable&&doBazaar(id)):(!gone&&pickPiece(id))} title={id} style={{position:"relative",padding:mob?8:5,borderRadius:7,cursor:(bazaarPick?tradeable:!gone&&curHuman())?"pointer":"default",background:isSel?shade(curCol,-0.6):T.cell,border:`1px solid ${tradeable?curCol:isSel?curCol:T.line}`,opacity:gone?(bazaarPick?.7:.14):bazaarPick&&!tradeable?.35:1,...(tradeable?{boxShadow:`0 0 0 1px ${curCol}`}:{}),...(mob?{flex:"0 0 auto",minWidth:44,minHeight:44,display:"flex",alignItems:"center",justifyContent:"center"}:{})}}>
                 {copies>1&&left>0&&<span style={{position:"absolute",top:-5,right:-4,fontFamily:T.mono,fontSize:9,background:T.bg,border:`1px solid ${T.line}`,borderRadius:6,padding:"0 3px",color:T.muted}}>×{left}</span>}
                 <div style={{display:"grid",gridTemplateColumns:`repeat(${p.c},${px}px)`,gridTemplateRows:`repeat(${p.r},${px}px)`,gap:1}}>{p.on.map((o,i)=><div key={i} style={{width:px,height:px,borderRadius:1,background:o?curCol:"transparent"}}/>)}</div></div>);})}
           </div>
@@ -786,23 +951,31 @@ function App(){
         {mob&&<button onClick={()=>setAskConcede(true)} disabled={!curHuman()||over} style={{...miniBtn,marginTop:10,color:"#c5a37a",borderColor:"#3a3324"}}>Give up</button>}
       </div>
     </div>
-    {/* Mobile: actions live in a fixed bottom bar so Submit is always reachable. */}
+    {/* Mobile: actions live in a fixed bottom bar so Submit is always reachable.
+        A live mini-preview of the selected piece shows the current orientation,
+        so Rotate/Flip give instant feedback even before the piece is dropped. */}
     {mob&&<div style={{position:"fixed",left:0,right:0,bottom:0,zIndex:40,background:T.panel,borderTop:`1px solid ${T.line}`,padding:"8px 10px calc(8px + env(safe-area-inset-bottom))"}}>
-      {tent&&<div style={{display:"flex",gap:6,justifyContent:"center",marginBottom:7}}>
-        {[["←",0,-1],["↑",-1,0],["↓",1,0],["→",0,1]].map(([lab,dr,dc])=>(
-          <button key={lab} onClick={()=>nudge(dr,dc)} style={{...miniBtn,padding:"9px 0",fontSize:15,flex:"1 1 0",maxWidth:74}}>{lab}</button>))}
-        <span style={{alignSelf:"center",fontFamily:T.mono,fontSize:10.5,color:tent.ok===false?"#c97a74":"#7fae6b",whiteSpace:"nowrap",paddingLeft:4}}>{tent.ok===false?"illegal":"legal"}</span></div>}
+      {sel&&<div style={{display:"flex",gap:6,justifyContent:"center",alignItems:"center",marginBottom:7}}>
+        {(()=>{const o=sel;const mR=Math.max(...o.map(c=>c[0]))+1,mC=Math.max(...o.map(c=>c[1]))+1;const on=new Set(o.map(([a,b])=>a+","+b));const pv=5;
+          return <div style={{flex:"0 0 auto",padding:5,borderRadius:6,background:T.cell,border:`1px solid ${tent&&tent.ok===false?"#9a4742":curCol}`,display:"grid",gridTemplateColumns:`repeat(${mC},${pv}px)`,gridTemplateRows:`repeat(${mR},${pv}px)`,gap:1,alignSelf:"center"}}>
+            {Array.from({length:mR*mC},(_,i)=><div key={i} style={{width:pv,height:pv,borderRadius:1,background:on.has(Math.floor(i/mC)+","+(i%mC))?(tent&&tent.ok===false?"#9a4742":curCol):"transparent"}}/>)}</div>;})()}
+        {tent?<>
+          {[["←",0,-1],["↑",-1,0],["↓",1,0],["→",0,1]].map(([lab,dr,dc])=>(
+            <button key={lab} onClick={()=>nudge(dr,dc)} style={{...miniBtn,padding:"10px 0",fontSize:16,flex:"1 1 0",maxWidth:70}}>{lab}</button>))}
+          <span style={{alignSelf:"center",fontFamily:T.mono,fontSize:10.5,color:tent.ok===false?"#c97a74":"#7fae6b",whiteSpace:"nowrap",paddingLeft:2}}>{tent.ok===false?"✕ illegal":"✓ legal"}</span>
+        </>:<span style={{alignSelf:"center",fontFamily:T.mono,fontSize:10.5,color:T.muted}}>Tap the board to drop it</span>}
+      </div>}
       <div style={{display:"flex",gap:6}}>
-        <button onClick={submit} disabled={!tent||tent.ok===false} style={{...miniBtn,flex:"2 1 0",padding:"12px 8px",fontSize:13.5,opacity:tent&&tent.ok!==false?1:.4,borderColor:tent&&tent.ok!==false?curCol:T.line,color:tent&&tent.ok!==false?curCol:T.muted}}>✓ Submit</button>
-        <button onClick={doRot} disabled={!sel} style={{...miniBtn,flex:"1 1 0",padding:"12px 6px",fontSize:13.5,opacity:sel?1:.4}}>⟳</button>
-        <button onClick={doFlip} disabled={!sel} style={{...miniBtn,flex:"1 1 0",padding:"12px 6px",fontSize:13.5,opacity:sel?1:.4}}>⇋</button>
+        <button onClick={submit} disabled={!tent||tent.ok===false} style={{...miniBtn,flex:"2 1 0",padding:"13px 8px",fontSize:14,fontWeight:700,opacity:tent&&tent.ok!==false?1:.4,borderColor:tent&&tent.ok!==false?curCol:T.line,color:tent&&tent.ok!==false?curCol:T.muted}}>✓ Place</button>
+        <button onClick={()=>{doRot();vib(8);}} disabled={!sel} style={{...miniBtn,flex:"1 1 0",padding:"13px 6px",fontSize:14,opacity:sel?1:.4}}>⟳ Spin</button>
+        <button onClick={()=>{doFlip();vib(8);}} disabled={!sel} style={{...miniBtn,flex:"1 1 0",padding:"13px 6px",fontSize:14,opacity:sel?1:.4}}>⇋ Flip</button>
         {targeting
-          ?<button onClick={()=>setTargeting(null)} style={{...miniBtn,flex:"1 1 0",padding:"12px 6px",fontSize:13.5,color:T.accent}}>✕</button>
-          :<button onClick={()=>tent?setTent(null):undoPower()} disabled={!tent&&!pundo} style={{...miniBtn,flex:"1 1 0",padding:"12px 6px",fontSize:13.5,opacity:(tent||pundo)?1:.4}}>↺</button>}
+          ?<button onClick={()=>setTargeting(null)} style={{...miniBtn,flex:"1 1 0",padding:"13px 6px",fontSize:14,color:T.accent}}>✕</button>
+          :<button onClick={()=>tent?setTent(null):undoPower()} disabled={!tent&&!pundo} style={{...miniBtn,flex:"1 1 0",padding:"13px 6px",fontSize:14,opacity:(tent||pundo)?1:.4}}>↺</button>}
       </div>
     </div>}
-    {mob&&<div style={{height:tent?122:70}}/>}
-    {toast&&<div style={{...toastStyle,...(mob?{bottom:tent?136:84}:{})}}>{toast}</div>}
+    {mob&&<div style={{height:sel?128:74}}/>}
+    {toast&&<div style={{...toastStyle,...(mob?{bottom:sel?142:88,left:12,right:12,transform:"none",textAlign:"center"}:{})}}>{toast}</div>}
     {settingsModal}
     {showInfo&&<div style={overlay} onClick={()=>setShowInfo(false)}><div onClick={e=>e.stopPropagation()} style={{...card,maxWidth:560,maxHeight:"80vh",overflow:"auto"}}>
       <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}><b style={{fontFamily:THEME.display,fontSize:18}}>How to play</b><button onClick={()=>setShowInfo(false)} style={ghostBtn}>close</button></div><Pedia/></div></div>}
