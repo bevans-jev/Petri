@@ -478,13 +478,15 @@ const THEMES={
   ember:{name:"Ember",bg:"#120d0b",panel:"#1d1612",line:"#352720",grid:"#221a16",cell:"#16100d",wall:"#5e463a",wallH:"#8a6a55",ink:"#f0e8e3",muted:"#b09a8a",accent:"#d99a6a",btnInk:"#120d0b"},
   rose:{name:"Rose",bg:"#160d11",panel:"#211520",line:"#3a2531",grid:"#241620",cell:"#190f15",wall:"#5e3a4a",wallH:"#8a5a72",ink:"#f3e6ec",muted:"#b08a9a",accent:"#db8aa8",btnInk:"#160d11"},
 };
-const PIECE_TEX={flat:"Flat",cells:"Cells",outline:"Outline"};
+const PIECE_TEX={flat:"Flat",cells:"Cells",outline:"Outline",foil:"Foil",colony:"Colony"};
 // Lock all rules/content/theme data: these are read-only at runtime, so freezing
 // blocks any accidental in-place mutation from corrupting game state.
 [GLYPHS,CIVS,TRAIT,POWERS,CPU_BRAINS,TILE,MAPS,PIECES,EVENTS,EVT_COLOR,THEMES,THEME,PIECE_TEX,SCHEMES,ORTH,DIAG].forEach(o=>Object.freeze(o));
 function pieceCellStyle(color,tex,cellBg){
   if(tex==="cells")return {background:color,backgroundImage:`radial-gradient(circle at 32% 28%, rgba(255,255,255,.32), rgba(255,255,255,0) 58%), radial-gradient(circle at 70% 78%, rgba(0,0,0,.22), rgba(0,0,0,0) 60%)`};
   if(tex==="outline")return {background:cellBg,boxShadow:`inset 0 0 0 2px ${color}`};
+  if(tex==="foil")return {background:color,backgroundImage:`linear-gradient(125deg, rgba(255,255,255,.55) 0%, rgba(255,255,255,0) 34%), conic-gradient(from 205deg at 50% 42%, rgba(255,74,140,.30), rgba(255,208,64,.30), rgba(70,230,190,.30), rgba(120,120,255,.30), rgba(255,74,140,.30))`,boxShadow:`inset 0 0 3px rgba(255,255,255,.25)`};
+  if(tex==="colony")return {background:cellBg,backgroundImage:`radial-gradient(circle at 50% 47%, ${color} 0 44%, ${color}cc 55%, ${color}55 67%, ${color}00 76%)`};
   return {background:color};}
 const card={background:"var(--panel)",border:"1px solid var(--line)",borderRadius:12,padding:16};
 const pill={fontFamily:THEME.mono,fontSize:12,padding:"8px 14px",borderRadius:8,border:"1px solid var(--line)",background:"transparent",color:"var(--muted)",cursor:"pointer"};
@@ -574,7 +576,7 @@ function App(){
   const [opts,setOpts]=useState({powers:false,traits:false,events:false });
   const [scheme,setScheme]=useState("SCHEMING…");
   const [copies,setCopies]=useState(1);const [pundo,setPundo]=useState(null);const [overHidden,setOverHidden]=useState(false);
-  const [boardTheme,setBoardTheme]=useState("dark");const [pieceTex,setPieceTex]=useState("flat");const [showSettings,setShowSettings]=useState(false);
+  const [boardTheme,setBoardTheme]=useState("dark");const [pieceTex,setPieceTex]=useState("flat");const [showSettings,setShowSettings]=useState(false);const [mobSheet,setMobSheet]=useState(false);
   // Track viewport size; `mob` flips the game screen into the single-column
   // touch layout (big buttons, on-screen rotate/flip, condensed panels).
   // Uses the smaller of width/height so a phone held sideways still gets the
@@ -676,10 +678,12 @@ function App(){
     setScheme(SCHEMES[0]);setPundo(null);setOverHidden(false);
     setTraitUsed({});setCarnArmed(false);setBazaarPick(false);setMinerArmed(false);setAscentArmed(false);setRuil(null);setReserved(null);
     setInfect(new Set());setEventFlash(null);clearTimeout(bannerT.current);evtClock.current=evtDelay(count);evtTurns.current=0;
-    setTurn(1);setStep(0);setAskConcede(false);setSel(null);setSelId(null);setHover(null);setTent(null);setArmed(false);setTargeting(null);setOver(false);setToast("");busy.current=false;
+    setTurn(1);setStep(0);setAskConcede(false);setSel(null);setSelId(null);setHover(null);setTent(null);setArmed(false);setTargeting(null);setOver(false);setToast("");setMobSheet(false);busy.current=false;
     zoomRef.current=1;panRef.current={x:0,y:0};setZoom(1);setPan({x:0,y:0});setScreen("game");}
 
-  function pickPiece(id){if(over||!curHuman()||(used[turn]?.[id]||0)>=copies||targeting)return;setSelId(id);const o=norm(PIECES[id]);setSel(o);selRef.current=o;setTent(null);}
+  function pickPiece(id){if(over||!curHuman()||(used[turn]?.[id]||0)>=copies||targeting)return;setSelId(id);const o=norm(PIECES[id]);setSel(o);selRef.current=o;
+    if(mob){const [r,c]=initialDrop(o);const cells=anchorWith(o,r,c);setTent({cells,id,r,c,ok:valid(board,cells,turn,isFirst(turn),startOf(turn),humanX())});vib(10);}
+    else setTent(null);}
   // Rotating or flipping keeps the tentative piece anchored where it was and
   // re-checks legality there, so adjusting a piece never loses your spot.
   function orientKeep(f){const o=f(selRef.current);setSel(o);selRef.current=o;
@@ -693,10 +697,27 @@ function App(){
 
   const anchorWith=(o,r,c)=>{let hr=o[0][0],hc=o[0][1];for(const [pr,pc] of o){if(pr<hr||(pr===hr&&pc<hc)){hr=pr;hc=pc;}}return o.map(([pr,pc])=>[r+pr-hr,c+pc-hc]);};
   const anchorCells=(r,c)=>sel?anchorWith(sel,r,c):null;
+  // Mobile: where a freshly-picked piece first lands. Prefer the LEGAL anchor
+  // nearest your colony's center so it drops ready to place; fall back to a
+  // clamped center spot if this orientation has no legal home right now.
+  function initialDrop(o){const H=board.length,W=board[0].length;
+    const mR=Math.max(...o.map(p=>p[0])),mC=Math.max(...o.map(p=>p[1]));
+    const mine=[];for(let r=0;r<H;r++)for(let c=0;c<W;c++)if(board[r][c]===turn)mine.push([r,c]);
+    let cr,cc;
+    if(mine.length){cr=Math.round(mine.reduce((a,b)=>a+b[0],0)/mine.length);cc=Math.round(mine.reduce((a,b)=>a+b[1],0)/mine.length);}
+    else {const st=startOf(turn);cr=st[0];cc=st[1];}
+    let best=null,bd=1e9;
+    for(let r=0;r<=H-1-mR;r++)for(let c=0;c<=W-1-mC;c++){const cells=anchorWith(o,r,c);
+      if(valid(board,cells,turn,isFirst(turn),startOf(turn),humanX())){const d=Math.abs(r-cr)+Math.abs(c-cc);if(d<bd){bd=d;best=[r,c];}}}
+    if(best)return best;
+    return [Math.max(0,Math.min(H-1-mR,cr)),Math.max(0,Math.min(W-1-mC,cc))];}
   useEffect(()=>{const cell=curCell.current;
     if(sel&&cell&&curHuman()&&!tent&&!targeting){const cells=anchorWith(sel,cell[0],cell[1]);setHover({cells,valid:valid(board,cells,turn,isFirst(turn),startOf(turn),humanX())});}
     else if(!sel)setHover(null);
   },[sel,armed,carnArmed,minerArmed,ascentArmed]); // eslint-disable-line
+  // Close the mobile abilities sheet the moment an ability arms or starts targeting,
+  // so the player is looking at the board when it's time to act on it.
+  useEffect(()=>{if(armed||targeting||carnArmed||minerArmed||ascentArmed||ruil||bazaarPick)setMobSheet(false);},[armed,targeting,carnArmed,minerArmed,ascentArmed,ruil,bazaarPick]);
   function cellEnter(r,c){curCell.current=[r,c];if(mob||!sel||tent||!curHuman()||targeting)return;const cells=anchorWith(sel,r,c);setHover({cells,valid:valid(board,cells,turn,isFirst(turn),startOf(turn),humanX())});}
 
   function usePower(){if(!oPowers||!curHuman()||over)return;const pw=seats[turn-1].power;
@@ -919,7 +940,7 @@ function App(){
     if(carnArmed)return"Carnival! This piece may link off ANY color's corners.";
     if(minerArmed)return"Miner! This piece may link off the map's walls.";
     if(ascentArmed)return"Himalayan Ascent! Anchor edge-to-edge, then climb over walls and rivals.";
-    if(sel)return"Spin it with R, flip with F, then drop it on the board.";
+    if(sel)return mob?"Nudge it with the D-pad, spin or flip, then Place.":"Spin it with R, flip with F, then drop it on the board.";
     return"Choose a piece and start spreading."+(oPowers?" Your power's waiting on the right.":"");}
   // Brazil's Carnival: arm/disarm; consumed on the next placement.
   function toggleCarnival(){if(traitUsed[turn]||!curHuman()||over)return;
@@ -1035,22 +1056,59 @@ function App(){
   const pw=seats[cur-1].power;const cellPx=Math.max(8,Math.round(560/Math.max(N,BW)*0.5));
 
   const BT=THEMES[boardTheme]||THEMES.dark;
+  // Power and trait-action cards are extracted so they can sit in the desktop
+  // side column OR, on mobile, inside a bottom "Abilities" sheet, keeping the
+  // main play screen to one scroll-free view.
+  const powerCardEl=oPowers?(()=>{const P=POWERS[pw];const ch=charges[cur]||0;const p=placed(cur);const early=p<POWER_MIN,late=p>=powerMax(cur);const usable=curHuman()&&!over&&ch>0&&!early&&!late;
+    return <div style={{...card,padding:"10px 12px",marginBottom:10,borderColor:armed||targeting?T.accent:T.line}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+        <span style={{fontFamily:T.mono,fontSize:10,color:T.accent,letterSpacing:1.5,whiteSpace:"nowrap"}}>◈ {P.name.toUpperCase()}</span>
+        <span style={{fontFamily:T.mono,fontSize:13,letterSpacing:1}}>{"●".repeat(ch)+"○".repeat(Math.max(0,P.charges-ch))}</span></div>
+      <div style={{fontSize:11.5,color:T.muted,margin:"4px 0 8px"}}>{P.effect}</div>
+      <button onClick={usePower} disabled={!usable} style={{...miniBtn,width:"100%",padding:"11px 12px",fontSize:12.5,opacity:usable?1:.4,borderColor:usable?T.accent:T.line,color:armed?"#0c0e12":T.ink,background:armed?T.accent:THEME.panel}}>
+        {armed?"On (tap to cancel)":targeting?"Choosing target…":early?`Unlocks after ${POWER_MIN} pieces`:late?"Locked, too late now":ch>0?`Use, ${P.trigger}`:"No charges left"}</button>
+    </div>;})():null;
+  const traitCardEl=(oTraits&&curHuman()&&!over&&["brazil","morocco","chile","nepal","netherlands"].includes(civOf(cur)))?(()=>{
+    const cv=civOf(cur);const spent=!!traitUsed[cur];
+    const M={brazil:{tag:"CARNIVAL",on:carnArmed,toggle:toggleCarnival,desc:"Once per game: your next piece may link corner to corner off ANY color.",act:"Use, then place a piece",onLbl:"On (tap to cancel)"},
+             chile:{tag:"MINER",on:minerArmed,toggle:toggleMiner,desc:"Once per game: your next piece may link corner to corner off the map's walls.",act:"Use, then place a piece",onLbl:"On (tap to cancel)"},
+             nepal:{tag:"HIMALAYAN ASCENT",on:ascentArmed,toggle:toggleAscent,desc:"Once per game: anchor one piece edge-to-edge on your color, then climb over open ground, walls, or up to 4 rival cells (which become yours).",act:"Use, then place a piece",onLbl:"On (tap to cancel)"},
+             netherlands:{tag:"RUILHANDEL",on:!!ruil,toggle:toggleRuil,desc:"Once per game: trade one of your unused pieces for any unused piece in a rival's tray (a Dutch Golden-Age barter).",act:"Use, then tap a piece to offer",onLbl:"Trading… (tap to cancel)"},
+             morocco:{tag:"THE BAZAAR",on:bazaarPick,toggle:toggleBazaar,desc:"Once per game: reclaim a piece you've played, at the cost of your smallest unused piece.",act:"Use, then tap a played piece",onLbl:"Choosing… (tap to cancel)"}}[cv];
+    return <div style={{...card,padding:"10px 12px",marginBottom:10,borderColor:M.on?colorOf(cur):T.line}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+        <span style={{fontFamily:T.mono,fontSize:10,color:colorOf(cur),letterSpacing:1.5,whiteSpace:"nowrap"}}>✦ {M.tag}</span>
+        <span style={{fontFamily:T.mono,fontSize:13,letterSpacing:1}}>{spent?"○":"●"}</span></div>
+      <div style={{fontSize:11.5,color:T.muted,margin:"4px 0 8px"}}>{M.desc}</div>
+      <button onClick={M.toggle} disabled={spent} style={{...miniBtn,width:"100%",padding:"11px 12px",fontSize:12.5,opacity:spent?.4:1,borderColor:spent?T.line:colorOf(cur),color:M.on?"#0c0e12":T.ink,background:M.on?colorOf(cur):THEME.panel}}>
+        {spent?"Already used this game":M.on?M.onLbl:M.act}</button>
+    </div>;})():null;
+  const hasSheet=mob&&(!!powerCardEl||!!traitCardEl);
   const zoomBtn={width:34,height:34,borderRadius:17,border:`1px solid ${BT.line}`,background:"rgba(12,14,18,.6)",backdropFilter:"blur(3px)",color:"#fff",fontSize:17,fontFamily:T.mono,lineHeight:"32px",padding:0,textAlign:"center",cursor:"pointer"};
   return(<Shell wide theme={BT}>
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:mob?8:14,flexWrap:"wrap",gap:8}}>
       <Title small/><div style={{display:"flex",gap:mob?5:8}}><button onClick={()=>setShowSettings(true)} style={{...ghostBtn,...(mob?{padding:"6px 9px"}:{})}}>{mob?"⚙":"⚙ theme"}</button><button onClick={()=>setShowInfo(true)} style={{...ghostBtn,...(mob?{padding:"6px 9px"}:{})}}>{mob?"?":"? help"}</button>{!mob&&<button onClick={()=>setScreen("players")} style={ghostBtn}>setup</button>}<button onClick={()=>setScreen("home")} style={{...ghostBtn,...(mob?{padding:"6px 9px"}:{})}}>quit</button></div>
     </div>
-    <div style={count<=2?{display:"flex",gap:8,flexWrap:"wrap",marginBottom:mob?10:14,justifyContent:"center"}:{display:"grid",gridTemplateColumns:mob?"1fr 1fr":`repeat(${count},minmax(0,1fr))`,gap:mob?6:8,marginBottom:mob?10:14}}>
+    {mob?
+      <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:7}}>
+        {seatsN.map(s=>{const out=done.has(s),act=s===turn&&!over;
+          return(<div key={s} style={{flex:"1 1 40%",minWidth:0,display:"flex",alignItems:"center",gap:6,padding:"5px 8px",borderRadius:8,border:`1px solid ${act?colorOf(s):T.line}`,background:act?shade(colorOf(s),-0.72):T.panel,boxShadow:act?`0 0 0 1px ${colorOf(s)}`:"none",opacity:out?.45:1}}>
+            <span style={{width:11,height:11,borderRadius:3,flexShrink:0,background:colorOf(s)}}/>
+            <span style={{fontSize:11.5,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:"1 1 auto",minWidth:0}}>{CIVS[civOf(s)].name}{out?" · out":""}</span>
+            <span style={{fontFamily:T.mono,fontSize:14,fontWeight:700,flexShrink:0}}>{scoreOf(s)}</span></div>);})}
+      </div>
+    :
+    <div style={count<=2?{display:"flex",gap:8,flexWrap:"wrap",marginBottom:14,justifyContent:"center"}:{display:"grid",gridTemplateColumns:`repeat(${count},minmax(0,1fr))`,gap:8,marginBottom:14}}>
       {seatsN.map(s=>{const out=done.has(s),act=s===turn&&!over;const g=glyphOf(s);
-        return(<div key={s} style={{...(count<=2?{flex:"0 1 220px",maxWidth:260}:{minWidth:0}),...card,padding:mob?"6px 9px":"8px 11px",borderColor:act?colorOf(s):T.line,boxShadow:act?`0 0 0 1px ${colorOf(s)}`:"none",opacity:out?.5:1}}>
+        return(<div key={s} style={{...(count<=2?{flex:"0 1 220px",maxWidth:260}:{minWidth:0}),...card,padding:"8px 11px",borderColor:act?colorOf(s):T.line,boxShadow:act?`0 0 0 1px ${colorOf(s)}`:"none",opacity:out?.5:1}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:8}}>
             <span style={{display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:600,minWidth:0,flex:"1 1 auto"}}>
               <span style={{width:11,height:11,borderRadius:3,flexShrink:0,background:colorOf(s),display:"flex",alignItems:"center",justifyContent:"center",fontSize:7,color:"#0009"}}>{g}</span>
               <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{CIVS[civOf(s)].name}</span></span>
             <span style={{fontFamily:T.mono,fontSize:15,fontWeight:700,flexShrink:0}}>{scoreOf(s)}</span></div>
           <div style={{fontSize:9.5,color:T.muted,fontFamily:T.mono,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{PIECE_IDS.length*copies-placed(s)} left{out?" · out":""}{fertile===s&&!out?<span style={{color:"#8fae6b"}}> · fertile</span>:""}</div></div>);})}
-    </div>
-    <div style={{display:"flex",gap:18,flexWrap:"wrap",alignItems:"flex-start"}}>
+    </div>}
+    <div style={{display:"flex",gap:mob?10:18,flexWrap:"wrap",alignItems:"flex-start"}}>
       <div style={{flex:"1 1 360px",maxWidth:560}}>
         <div ref={boardWrapRef} style={{position:"relative",overflow:mob?"hidden":"visible",touchAction:mob?(zoom>1?"none":"pan-y"):"auto",borderRadius:10}}>
         <div ref={transformRef} style={{transform:mob?`translate(${pan.x}px,${pan.y}px) scale(${zoom})`:"none",transformOrigin:"center center",transition:"transform .18s ease-out"}}>
@@ -1092,32 +1150,8 @@ function App(){
           {targeting&&<button onClick={()=>setTargeting(null)} style={{...miniBtn,color:T.accent}}>✕ Cancel</button>}
           <button onClick={()=>setAskConcede(true)} disabled={!curHuman()||over} style={{...miniBtn,color:"#c5a37a",borderColor:"#3a3324"}}>Give up</button>
         </div>}
-        {oPowers&&(()=>{const P=POWERS[pw];const ch=charges[cur]||0;const p=placed(cur);const early=p<POWER_MIN,late=p>=powerMax(cur);const usable=curHuman()&&!over&&ch>0&&!early&&!late;
-          return <div style={{...card,padding:mob?"8px 10px":"10px 12px",marginBottom:10,borderColor:armed||targeting?T.accent:T.line}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
-              <span style={{fontFamily:T.mono,fontSize:10,color:T.accent,letterSpacing:1.5,whiteSpace:"nowrap"}}>◈ {P.name.toUpperCase()}</span>
-              <span style={{fontFamily:T.mono,fontSize:13,letterSpacing:1}}>{"●".repeat(ch)+"○".repeat(Math.max(0,P.charges-ch))}</span></div>
-            {!mob&&<div style={{fontSize:11.5,color:T.muted,margin:"4px 0 8px"}}>{P.effect}</div>}
-            <button onClick={usePower} disabled={!usable} style={{...miniBtn,width:"100%",marginTop:mob?7:0,...(mob?{padding:"10px 12px",fontSize:12.5}:{}),opacity:usable?1:.4,borderColor:usable?T.accent:T.line,color:armed?"#0c0e12":T.ink,background:armed?T.accent:THEME.panel}}>
-              {armed?"On (tap to cancel)":targeting?"Choosing target…":early?`Unlocks after ${POWER_MIN} pieces`:late?"Locked, too late now":ch>0?`Use, ${P.trigger}`:"No charges left"}</button>
-          </div>;})()}
-        {/* One-shot trait actions (Carnival, Bazaar, Miner) share one card so
-            each can fire on desktop or mobile alike. */}
-        {oTraits&&curHuman()&&!over&&["brazil","morocco","chile","nepal","netherlands"].includes(civOf(cur))&&(()=>{
-          const cv=civOf(cur);const spent=!!traitUsed[cur];
-          const M={brazil:{tag:"CARNIVAL",on:carnArmed,toggle:toggleCarnival,desc:"Once per game: your next piece may link corner to corner off ANY color.",act:"Use, then place a piece",onLbl:"On (tap to cancel)"},
-                   chile:{tag:"MINER",on:minerArmed,toggle:toggleMiner,desc:"Once per game: your next piece may link corner to corner off the map's walls.",act:"Use, then place a piece",onLbl:"On (tap to cancel)"},
-                   nepal:{tag:"HIMALAYAN ASCENT",on:ascentArmed,toggle:toggleAscent,desc:"Once per game: anchor one piece edge-to-edge on your color, then climb over open ground, walls, or up to 4 rival cells (which become yours).",act:"Use, then place a piece",onLbl:"On (tap to cancel)"},
-                   netherlands:{tag:"RUILHANDEL",on:!!ruil,toggle:toggleRuil,desc:"Once per game: trade one of your unused pieces for any unused piece in a rival's tray (a Dutch Golden-Age barter).",act:"Use, then tap a piece to offer",onLbl:"Trading… (tap to cancel)"},
-                   morocco:{tag:"THE BAZAAR",on:bazaarPick,toggle:toggleBazaar,desc:"Once per game: reclaim a piece you've played, at the cost of your smallest unused piece.",act:"Use, then tap a played piece",onLbl:"Choosing… (tap to cancel)"}}[cv];
-          return <div style={{...card,padding:mob?"8px 10px":"10px 12px",marginBottom:10,borderColor:M.on?colorOf(cur):T.line}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
-              <span style={{fontFamily:T.mono,fontSize:10,color:colorOf(cur),letterSpacing:1.5,whiteSpace:"nowrap"}}>✦ {M.tag}</span>
-              <span style={{fontFamily:T.mono,fontSize:13,letterSpacing:1}}>{spent?"○":"●"}</span></div>
-            {!mob&&<div style={{fontSize:11.5,color:T.muted,margin:"4px 0 8px"}}>{M.desc}</div>}
-            <button onClick={M.toggle} disabled={spent} style={{...miniBtn,width:"100%",marginTop:mob?7:0,...(mob?{padding:"10px 12px",fontSize:12.5}:{}),opacity:spent?.4:1,borderColor:spent?T.line:colorOf(cur),color:M.on?"#0c0e12":T.ink,background:M.on?colorOf(cur):THEME.panel}}>
-              {spent?"Already used this game":M.on?M.onLbl:M.act}</button>
-          </div>;})()}
+        {!mob&&powerCardEl}
+        {!mob&&traitCardEl}
         {oTraits&&!mob&&<div style={{...card,padding:"8px 12px",marginBottom:10}}>
           <span style={{fontFamily:T.mono,fontSize:10.5,color:colorOf(cur)}}>✦ {CIVS[civOf(cur)].name.toUpperCase()}</span> <span style={{fontSize:11.5,color:T.ink}}>{TRAIT[civOf(cur)][0]}</span> <span style={{fontSize:11,color:T.muted}}>,  {TRAIT[civOf(cur)][1]}</span></div>}
         <div style={{...card,padding:mob?"10px 10px 6px":12,opacity:curHuman()?1:.5}}>
@@ -1135,34 +1169,54 @@ function App(){
                 <div style={{display:"grid",gridTemplateColumns:`repeat(${p.c},${px}px)`,gridTemplateRows:`repeat(${p.r},${px}px)`,gap:1}}>{p.on.map((o,i)=><div key={i} style={{width:px,height:px,borderRadius:1,background:o?curCol:"transparent"}}/>)}</div></div>);})}
           </div>
         </div>
-        {mob&&<button onClick={()=>setAskConcede(true)} disabled={!curHuman()||over} style={{...miniBtn,marginTop:10,color:"#c5a37a",borderColor:"#3a3324"}}>Give up</button>}
+        {mob&&<div style={{height:6}}/>}
       </div>
     </div>
-    {/* Mobile: actions live in a fixed bottom bar so Submit is always reachable.
-        A live mini-preview of the selected piece shows the current orientation,
-        so Rotate/Flip give instant feedback even before the piece is dropped. */}
-    {mob&&<div style={{position:"fixed",left:0,right:0,bottom:0,zIndex:40,background:T.panel,borderTop:`1px solid ${T.line}`,padding:"8px 10px calc(8px + env(safe-area-inset-bottom))"}}>
-      {sel&&<div style={{display:"flex",gap:6,justifyContent:"center",alignItems:"center",marginBottom:7}}>
-        {(()=>{const o=sel;const mR=Math.max(...o.map(c=>c[0]))+1,mC=Math.max(...o.map(c=>c[1]))+1;const on=new Set(o.map(([a,b])=>a+","+b));const pv=5;
-          return <div style={{flex:"0 0 auto",padding:5,borderRadius:6,background:T.cell,border:`1px solid ${tent&&tent.ok===false?"#9a4742":curCol}`,display:"grid",gridTemplateColumns:`repeat(${mC},${pv}px)`,gridTemplateRows:`repeat(${mR},${pv}px)`,gap:1,alignSelf:"center"}}>
-            {Array.from({length:mR*mC},(_,i)=><div key={i} style={{width:pv,height:pv,borderRadius:1,background:on.has(Math.floor(i/mC)+","+(i%mC))?(tent&&tent.ok===false?"#9a4742":curCol):"transparent"}}/>)}</div>;})()}
-        {tent?<>
-          {[["←",0,-1],["↑",-1,0],["↓",1,0],["→",0,1]].map(([lab,dr,dc])=>(
-            <button key={lab} onClick={()=>nudge(dr,dc)} style={{...miniBtn,padding:"10px 0",fontSize:16,flex:"1 1 0",maxWidth:70}}>{lab}</button>))}
-          <span style={{alignSelf:"center",fontFamily:T.mono,fontSize:10.5,color:tent.ok===false?"#c97a74":"#7fae6b",whiteSpace:"nowrap",paddingLeft:2}}>{tent.ok===false?"✕ illegal":"✓ legal"}</span>
-        </>:<span style={{alignSelf:"center",fontFamily:T.mono,fontSize:10.5,color:T.muted}}>Tap the board to drop it</span>}
-      </div>}
-      <div style={{display:"flex",gap:6}}>
-        <button onClick={submit} disabled={!tent||tent.ok===false} style={{...miniBtn,flex:"2 1 0",padding:"13px 8px",fontSize:14,fontWeight:700,opacity:tent&&tent.ok!==false?1:.4,borderColor:tent&&tent.ok!==false?curCol:T.line,color:tent&&tent.ok!==false?curCol:T.muted}}>✓ Place</button>
-        <button onClick={()=>{doRot();vib(8);}} disabled={!sel} style={{...miniBtn,flex:"1 1 0",padding:"13px 6px",fontSize:14,opacity:sel?1:.4}}>⟳ Spin</button>
-        <button onClick={()=>{doFlip();vib(8);}} disabled={!sel} style={{...miniBtn,flex:"1 1 0",padding:"13px 6px",fontSize:14,opacity:sel?1:.4}}>⇋ Flip</button>
-        {targeting
-          ?<button onClick={()=>setTargeting(null)} style={{...miniBtn,flex:"1 1 0",padding:"13px 6px",fontSize:14,color:T.accent}}>✕</button>
-          :<button onClick={()=>tent?setTent(null):undoPower()} disabled={!tent&&!pundo} style={{...miniBtn,flex:"1 1 0",padding:"13px 6px",fontSize:14,opacity:(tent||pundo)?1:.4}}>↺</button>}
+    {/* Mobile control deck: a thumb D-pad nudges the auto-dropped piece, the
+        cluster on the right rotates/flips/places, and abilities live in a sheet. */}
+    {mob&&(()=>{const dpad={height:36,borderRadius:8,border:`1px solid ${T.line}`,background:T.cell,color:T.ink,fontSize:17,fontFamily:T.mono,padding:0,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"};
+      const dis={opacity:.3};const legal=tent&&tent.ok!==false;
+      const prev=(()=>{if(!sel)return <span style={{color:T.muted,fontSize:8,fontFamily:T.mono}}>—</span>;const o=sel;const mC=Math.max(...o.map(c=>c[1]))+1,mR=Math.max(...o.map(c=>c[0]))+1;const on=new Set(o.map(([a,b])=>a+","+b));const pv=Math.max(2,Math.floor(22/Math.max(mR,mC)));
+        return <div style={{display:"grid",gridTemplateColumns:`repeat(${mC},${pv}px)`,gridTemplateRows:`repeat(${mR},${pv}px)`,gap:1}}>{Array.from({length:mR*mC},(_,i)=><div key={i} style={{width:pv,height:pv,borderRadius:1,background:on.has(Math.floor(i/mC)+","+(i%mC))?(legal?curCol:"#b0544e"):"transparent"}}/>)}</div>;})();
+      return <div style={{position:"fixed",left:0,right:0,bottom:0,zIndex:40,background:T.panel,borderTop:`1px solid ${T.line}`,padding:"8px 10px calc(8px + env(safe-area-inset-bottom))",display:"flex",gap:10,alignItems:"stretch"}}>
+        {targeting?<>
+          <div style={{flex:"1 1 0",display:"flex",alignItems:"center",fontFamily:T.mono,fontSize:12,color:T.accent}}>◈ Tap the board to choose a target</div>
+          <button onClick={()=>setTargeting(null)} style={{...miniBtn,padding:"0 20px",fontSize:14,color:T.accent}}>✕ Cancel</button>
+        </>:<>
+          {/* D-pad */}
+          <div style={{display:"grid",gridTemplateColumns:"34px 34px 34px",gridTemplateRows:"36px 36px 36px",gap:4,flex:"0 0 auto"}}>
+            <span/><button onClick={()=>nudge(-1,0)} disabled={!tent} style={{...dpad,...(tent?{}:dis)}}>▲</button><span/>
+            <button onClick={()=>nudge(0,-1)} disabled={!tent} style={{...dpad,...(tent?{}:dis)}}>◀</button>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"center",borderRadius:8,border:`1px solid ${legal?curCol:tent?"#b0544e":T.line}`,background:T.bg}}>{prev}</div>
+            <button onClick={()=>nudge(0,1)} disabled={!tent} style={{...dpad,...(tent?{}:dis)}}>▶</button>
+            <span/><button onClick={()=>nudge(1,0)} disabled={!tent} style={{...dpad,...(tent?{}:dis)}}>▼</button><span/>
+          </div>
+          {/* right cluster */}
+          <div style={{flex:"1 1 0",display:"flex",flexDirection:"column",gap:6,minWidth:0}}>
+            <div style={{display:"flex",gap:6}}>
+              <button onClick={()=>{doRot();vib(8);}} disabled={!sel} style={{...miniBtn,flex:"1 1 0",padding:"9px 4px",fontSize:13,opacity:sel?1:.4}}>⟳ Spin</button>
+              <button onClick={()=>{doFlip();vib(8);}} disabled={!sel} style={{...miniBtn,flex:"1 1 0",padding:"9px 4px",fontSize:13,opacity:sel?1:.4}}>⇋ Flip</button>
+              <button onClick={()=>tent?setTent(null):undoPower()} disabled={!tent&&!pundo} style={{...miniBtn,flex:"0 0 auto",padding:"9px 12px",fontSize:14,opacity:(tent||pundo)?1:.4}}>↺</button>
+              {hasSheet&&<button onClick={()=>setMobSheet(true)} style={{...miniBtn,flex:"0 0 auto",padding:"9px 12px",fontSize:14,borderColor:(armed||carnArmed||minerArmed||ascentArmed||!!ruil||bazaarPick)?T.accent:T.line,color:T.accent}}>⚡</button>}
+            </div>
+            <button onClick={submit} disabled={!legal} style={{...miniBtn,padding:"13px 8px",fontSize:15,fontWeight:700,opacity:legal?1:.4,borderColor:legal?curCol:T.line,color:legal?curCol:T.muted,background:legal?shade(curCol,-0.72):THEME.panel}}>
+              {sel?(legal?"✓ Place piece":"✕ Illegal spot, nudge it"):"Pick a piece below ↓"}</button>
+          </div>
+        </>}
+      </div>;})()}
+    {/* Abilities sheet: powers + traits + give up, off the main screen. */}
+    {mob&&mobSheet&&<div style={{...overlay,alignItems:"flex-end",padding:0}} onClick={()=>setMobSheet(false)}>
+      <div onClick={e=>e.stopPropagation()} style={{width:"100%",background:T.panel,borderTop:`1px solid ${T.line}`,borderRadius:"16px 16px 0 0",padding:"14px 14px calc(18px + env(safe-area-inset-bottom))",maxHeight:"78vh",overflowY:"auto"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+          <b style={{fontFamily:T.display,fontSize:17}}>Abilities</b><button onClick={()=>setMobSheet(false)} style={ghostBtn}>done</button></div>
+        {powerCardEl}{traitCardEl}
+        {oTraits&&<div style={{...card,padding:"8px 12px",marginBottom:10}}>
+          <span style={{fontFamily:T.mono,fontSize:10.5,color:colorOf(cur)}}>✦ {CIVS[civOf(cur)].name.toUpperCase()}</span> <span style={{fontSize:11.5,color:T.ink}}>{TRAIT[civOf(cur)][0]}</span> <span style={{fontSize:11,color:T.muted}}>,  {TRAIT[civOf(cur)][1]}</span></div>}
+        <button onClick={()=>{setMobSheet(false);setAskConcede(true);}} disabled={!curHuman()||over} style={{...miniBtn,width:"100%",marginTop:4,color:"#c5a37a",borderColor:"#3a3324"}}>Give up</button>
       </div>
     </div>}
-    {mob&&<div style={{height:sel?128:74}}/>}
-    {toast&&<div style={{...toastStyle,...(mob?{bottom:sel?142:88,left:12,right:12,transform:"none",textAlign:"center"}:{})}}>{toast}</div>}
+    {mob&&<div style={{height:132}}/>}
+    {toast&&<div style={{...toastStyle,...(mob?{bottom:150,left:12,right:12,transform:"none",textAlign:"center"}:{})}}>{toast}</div>}
     {settingsModal}
     {ruil&&ruil.give!=null&&<div style={overlay} onClick={()=>setRuil(null)}><div onClick={e=>e.stopPropagation()} style={{...card,padding:"20px 22px",maxWidth:460,width:"100%",maxHeight:"80vh",overflow:"auto"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}><b style={{fontFamily:T.display,fontSize:18}}>Ruilhandel</b><button onClick={()=>setRuil(null)} style={ghostBtn}>cancel</button></div>
