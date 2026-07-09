@@ -681,9 +681,19 @@ function App(){
     setTurn(1);setStep(0);setAskConcede(false);setSel(null);setSelId(null);setHover(null);setTent(null);setArmed(false);setTargeting(null);setOver(false);setToast("");setMobSheet(false);busy.current=false;
     zoomRef.current=1;panRef.current={x:0,y:0};setZoom(1);setPan({x:0,y:0});setScreen("game");}
 
-  function pickPiece(id){if(over||!curHuman()||(used[turn]?.[id]||0)>=copies||targeting)return;setSelId(id);const o=norm(PIECES[id]);setSel(o);selRef.current=o;
-    if(mob){const [r,c]=initialDrop(o);const cells=anchorWith(o,r,c);setTent({cells,id,r,c,ok:valid(board,cells,turn,isFirst(turn),startOf(turn),humanX())});vib(10);}
-    else setTent(null);}
+  function pickPiece(id){if(over||!curHuman()||(used[turn]?.[id]||0)>=copies||targeting)return;setSelId(id);const o=norm(PIECES[id]);
+    if(mob){
+      let oo=o,drop=null;
+      if(isFirst(turn)){ // first move is a real hint: find an orientation + spot that legally covers your start
+        const st=startOf(turn),H=board.length,W=board[0].length;
+        outer:for(const cand of orients(PIECES[id])){const co=norm(cand);const mR=Math.max(...co.map(p=>p[0])),mC=Math.max(...co.map(p=>p[1]));
+          for(let r=0;r<=H-1-mR;r++)for(let c=0;c<=W-1-mC;c++){const cells=anchorWith(co,r,c);
+            if(valid(board,cells,turn,true,st,humanX())){oo=co;drop=[r,c];break outer;}}}
+      }
+      if(!drop)drop=initialDrop(oo); // later pieces (or no legal first spot): middle of your colony, you position it
+      setSel(oo);selRef.current=oo;const cells=anchorWith(oo,drop[0],drop[1]);
+      setTent({cells,id,r:drop[0],c:drop[1],ok:valid(board,cells,turn,isFirst(turn),startOf(turn),humanX())});vib(10);
+    } else {setSel(o);selRef.current=o;setTent(null);}}
   // Rotating or flipping keeps the tentative piece anchored where it was and
   // re-checks legality there, so adjusting a piece never loses your spot.
   function orientKeep(f){const o=f(selRef.current);setSel(o);selRef.current=o;
@@ -697,20 +707,25 @@ function App(){
 
   const anchorWith=(o,r,c)=>{let hr=o[0][0],hc=o[0][1];for(const [pr,pc] of o){if(pr<hr||(pr===hr&&pc<hc)){hr=pr;hc=pc;}}return o.map(([pr,pc])=>[r+pr-hr,c+pc-hc]);};
   const anchorCells=(r,c)=>sel?anchorWith(sel,r,c):null;
-  // Mobile: where a freshly-picked piece first lands. Prefer the LEGAL anchor
-  // nearest your colony's center so it drops ready to place; fall back to a
-  // clamped center spot if this orientation has no legal home right now.
+  // Mobile: where a freshly-picked piece first lands. The FIRST piece is a hint,
+  // dropped on your start corner so a new player isn't lost. Every piece after
+  // that lands in the middle of your own colony, NOT snapped to a legal spot,
+  // so the player has to position it themselves (auto-snapping would be cheating).
   function initialDrop(o){const H=board.length,W=board[0].length;
     const mR=Math.max(...o.map(p=>p[0])),mC=Math.max(...o.map(p=>p[1]));
+    const clamp=(r,c)=>[Math.max(0,Math.min(H-1-mR,r)),Math.max(0,Math.min(W-1-mC,c))];
+    if(isFirst(turn)){ // first move: a real hint — the legal spot nearest your start
+      const st=startOf(turn);let best=null,bd=1e9;
+      for(let r=0;r<=H-1-mR;r++)for(let c=0;c<=W-1-mC;c++){const cells=anchorWith(o,r,c);
+        if(valid(board,cells,turn,true,st,humanX())){const d=Math.abs(r-st[0])+Math.abs(c-st[1]);if(d<bd){bd=d;best=[r,c];}}}
+      return best||clamp(st[0],st[1]);}
+    // every piece after that lands in the middle of your colony, NOT snapped to a
+    // legal spot, so the player positions it themselves (auto-snapping is cheating).
     const mine=[];for(let r=0;r<H;r++)for(let c=0;c<W;c++)if(board[r][c]===turn)mine.push([r,c]);
     let cr,cc;
     if(mine.length){cr=Math.round(mine.reduce((a,b)=>a+b[0],0)/mine.length);cc=Math.round(mine.reduce((a,b)=>a+b[1],0)/mine.length);}
-    else {const st=startOf(turn);cr=st[0];cc=st[1];}
-    let best=null,bd=1e9;
-    for(let r=0;r<=H-1-mR;r++)for(let c=0;c<=W-1-mC;c++){const cells=anchorWith(o,r,c);
-      if(valid(board,cells,turn,isFirst(turn),startOf(turn),humanX())){const d=Math.abs(r-cr)+Math.abs(c-cc);if(d<bd){bd=d;best=[r,c];}}}
-    if(best)return best;
-    return [Math.max(0,Math.min(H-1-mR,cr)),Math.max(0,Math.min(W-1-mC,cc))];}
+    else {cr=Math.floor(H/2);cc=Math.floor(W/2);}
+    return clamp(cr,cc);}
   useEffect(()=>{const cell=curCell.current;
     if(sel&&cell&&curHuman()&&!tent&&!targeting){const cells=anchorWith(sel,cell[0],cell[1]);setHover({cells,valid:valid(board,cells,turn,isFirst(turn),startOf(turn),humanX())});}
     else if(!sel)setHover(null);
@@ -1174,7 +1189,7 @@ function App(){
     </div>
     {/* Mobile control deck: a thumb D-pad nudges the auto-dropped piece, the
         cluster on the right rotates/flips/places, and abilities live in a sheet. */}
-    {mob&&(()=>{const dpad={height:36,borderRadius:8,border:`1px solid ${T.line}`,background:T.cell,color:T.ink,fontSize:17,fontFamily:T.mono,padding:0,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"};
+    {mob&&(()=>{const dpad={height:42,borderRadius:9,border:`1px solid ${T.line}`,background:T.cell,color:T.ink,fontSize:22,fontFamily:T.mono,padding:0,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"};
       const dis={opacity:.3};const legal=tent&&tent.ok!==false;
       const prev=(()=>{if(!sel)return <span style={{color:T.muted,fontSize:8,fontFamily:T.mono}}>—</span>;const o=sel;const mC=Math.max(...o.map(c=>c[1]))+1,mR=Math.max(...o.map(c=>c[0]))+1;const on=new Set(o.map(([a,b])=>a+","+b));const pv=Math.max(2,Math.floor(22/Math.max(mR,mC)));
         return <div style={{display:"grid",gridTemplateColumns:`repeat(${mC},${pv}px)`,gridTemplateRows:`repeat(${mR},${pv}px)`,gap:1}}>{Array.from({length:mR*mC},(_,i)=><div key={i} style={{width:pv,height:pv,borderRadius:1,background:on.has(Math.floor(i/mC)+","+(i%mC))?(legal?curCol:"#b0544e"):"transparent"}}/>)}</div>;})();
@@ -1184,7 +1199,7 @@ function App(){
           <button onClick={()=>setTargeting(null)} style={{...miniBtn,padding:"0 20px",fontSize:14,color:T.accent}}>✕ Cancel</button>
         </>:<>
           {/* D-pad */}
-          <div style={{display:"grid",gridTemplateColumns:"34px 34px 34px",gridTemplateRows:"36px 36px 36px",gap:4,flex:"0 0 auto"}}>
+          <div style={{display:"grid",gridTemplateColumns:"46px 46px 46px",gridTemplateRows:"42px 42px 42px",gap:4,flex:"0 0 auto"}}>
             <span/><button onClick={()=>nudge(-1,0)} disabled={!tent} style={{...dpad,...(tent?{}:dis)}}>▲</button><span/>
             <button onClick={()=>nudge(0,-1)} disabled={!tent} style={{...dpad,...(tent?{}:dis)}}>◀</button>
             <div style={{display:"flex",alignItems:"center",justifyContent:"center",borderRadius:8,border:`1px solid ${legal?curCol:tent?"#b0544e":T.line}`,background:T.bg}}>{prev}</div>
@@ -1196,11 +1211,14 @@ function App(){
             <div style={{display:"flex",gap:6}}>
               <button onClick={()=>{doRot();vib(8);}} disabled={!sel} style={{...miniBtn,flex:"1 1 0",padding:"9px 4px",fontSize:13,opacity:sel?1:.4}}>⟳ Spin</button>
               <button onClick={()=>{doFlip();vib(8);}} disabled={!sel} style={{...miniBtn,flex:"1 1 0",padding:"9px 4px",fontSize:13,opacity:sel?1:.4}}>⇋ Flip</button>
-              <button onClick={()=>tent?setTent(null):undoPower()} disabled={!tent&&!pundo} style={{...miniBtn,flex:"0 0 auto",padding:"9px 12px",fontSize:14,opacity:(tent||pundo)?1:.4}}>↺</button>
-              {hasSheet&&<button onClick={()=>setMobSheet(true)} style={{...miniBtn,flex:"0 0 auto",padding:"9px 12px",fontSize:14,borderColor:(armed||carnArmed||minerArmed||ascentArmed||!!ruil||bazaarPick)?T.accent:T.line,color:T.accent}}>⚡</button>}
+              {hasSheet&&(()=>{const armedAbility=armed||carnArmed||minerArmed||ascentArmed||!!ruil||bazaarPick;
+                return <button onClick={()=>setMobSheet(true)} style={{...miniBtn,flex:"1.3 1 0",padding:"9px 4px",fontSize:13,fontWeight:700,borderColor:T.accent,color:armedAbility?"#0c0e12":T.accent,background:armedAbility?T.accent:shade(T.accent,-0.74)}}>⚡ Abilities</button>;})()}
             </div>
-            <button onClick={submit} disabled={!legal} style={{...miniBtn,padding:"13px 8px",fontSize:15,fontWeight:700,opacity:legal?1:.4,borderColor:legal?curCol:T.line,color:legal?curCol:T.muted,background:legal?shade(curCol,-0.72):THEME.panel}}>
-              {sel?(legal?"✓ Place piece":"✕ Illegal spot, nudge it"):"Pick a piece below ↓"}</button>
+            <div style={{display:"flex",gap:6}}>
+              <button onClick={submit} disabled={!legal} style={{...miniBtn,flex:"1 1 0",padding:"13px 8px",fontSize:15,fontWeight:700,opacity:legal?1:.4,borderColor:legal?curCol:T.line,color:legal?curCol:T.muted,background:legal?shade(curCol,-0.72):THEME.panel}}>
+                {sel?(legal?"✓ Place piece":"✕ Illegal spot, nudge it"):"Pick a piece below ↓"}</button>
+              <button onClick={()=>tent?setTent(null):undoPower()} disabled={!tent&&!pundo} style={{...miniBtn,flex:"0 0 auto",padding:"13px 14px",fontSize:15,opacity:(tent||pundo)?1:.4}}>↺</button>
+            </div>
           </div>
         </>}
       </div>;})()}
@@ -1215,8 +1233,8 @@ function App(){
         <button onClick={()=>{setMobSheet(false);setAskConcede(true);}} disabled={!curHuman()||over} style={{...miniBtn,width:"100%",marginTop:4,color:"#c5a37a",borderColor:"#3a3324"}}>Give up</button>
       </div>
     </div>}
-    {mob&&<div style={{height:132}}/>}
-    {toast&&<div style={{...toastStyle,...(mob?{bottom:150,left:12,right:12,transform:"none",textAlign:"center"}:{})}}>{toast}</div>}
+    {mob&&<div style={{height:150}}/>}
+    {toast&&<div style={{...toastStyle,...(mob?{bottom:168,left:12,right:12,transform:"none",textAlign:"center"}:{})}}>{toast}</div>}
     {settingsModal}
     {ruil&&ruil.give!=null&&<div style={overlay} onClick={()=>setRuil(null)}><div onClick={e=>e.stopPropagation()} style={{...card,padding:"20px 22px",maxWidth:460,width:"100%",maxHeight:"80vh",overflow:"auto"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}><b style={{fontFamily:T.display,fontSize:18}}>Ruilhandel</b><button onClick={()=>setRuil(null)} style={ghostBtn}>cancel</button></div>
