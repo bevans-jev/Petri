@@ -659,8 +659,8 @@ function App(){
   const oPowers=opts.powers,oTraits=opts.traits;
   const evtEnabled=EVENT_IDS.filter(k=>evtPick[k]);const oEvents=opts.events&&evtEnabled.length>0;
   const evtDelay=n=>n*2+Math.floor(Math.random()*n*2)+1;
-  const POWER_MIN=4,POWER_MAX=13; // powers usable only between your 4th and 13th placement
-  const powerMax=s=>POWER_MAX+(oTraits&&civOf(s)==="guatemala"?9:0);
+  const POWER_MIN=4,POWER_MAX=18; // powers unlock at your 4th placement; the cutoff scales with piece count below
+  const powerMax=s=>Math.round(POWER_MAX*copies)+(oTraits&&civOf(s)==="guatemala"?9:0); // later on 2×/3× boards
   const placed=s=>Object.values(used[s]||{}).reduce((a,b)=>a+b,0);
   // One-shot trait state: Brazil's Carnival (arm, consumed on placement) and
   // Morocco's Bazaar (piece-tray pick mode). `reserved` holds the single cell
