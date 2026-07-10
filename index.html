@@ -614,7 +614,7 @@ function App(){
   const [vw,setVw]=useState(typeof window!=="undefined"?window.innerWidth:1024);
   const [vh,setVh]=useState(typeof window!=="undefined"?window.innerHeight:768);
   useEffect(()=>{const h=()=>{setVw(window.innerWidth);setVh(window.innerHeight);};window.addEventListener("resize",h);window.addEventListener("orientationchange",h);return()=>{window.removeEventListener("resize",h);window.removeEventListener("orientationchange",h);};},[]);
-  const mob=Math.min(vw,vh)<700;
+  const mob=Math.min(vw,vh)<500;
   // Pinch-to-zoom & drag-to-pan for the board (touch only). Big maps (up to
   // 34x34) render every cell far too small to tap on a phone, so the board
   // itself needs to zoom, on top of the existing tap+nudge fallback. Live
