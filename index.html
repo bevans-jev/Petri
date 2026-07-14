@@ -69,35 +69,35 @@ const CIVS = {
 };
 const CIV_IDS = Object.keys(CIVS);
 const TRAIT = {
-  kyrgyzstan:["Silk Road","Silk Road caravans multiplied riches as they crossed Central Asia, so its Teleport tiles spawn 2 squares, not 1"],
-  botswana:["Hard as Diamond","Botswana's diamonds built one of Africa's steadiest nations, so Bomb tiles can never blast away its squares"],
-  lithuania:["Trailblazer","the first Soviet republic to break for freedom, it plants 1 extra square out toward mid-board at the start"],
+  kyrgyzstan:["Silk Road","Silk Road caravans hauled riches across great distances, so once per game it drops a caravan on far-off open ground (worth +1 on its own); reach it with its colony to claim a haul that grows the farther it was sent"],
+  botswana:["Okavango","the Okavango Delta's floodwaters fan across the Kalahari, so once per game a placement floods 5 open squares around your colony: they block everyone and score +5 for 3 turns, then the water recedes and they return to open ground"],
+  lithuania:["Trailblazer","the Grand Duchy of Lithuania was once one of medieval Europe's largest realms, so it begins with a second outpost planted out toward mid-board"],
   guatemala:["Long Count","the Maya tracked time in vast turning cycles, so once per game the great cycle comes round and it places two pieces in a single turn"],
   colombia:["Second Harvest","Colombia's coffee slopes ripen twice a year, so it gets one extra power charge"],
   tonga:["Big Hits","Tonga's rugby giants hit hardest, so it scores +1 point for every 5-square piece it places"],
-  malta:["The Unconquered","Malta withstood the Great Siege unbroken, so Wall tiles can never turn its squares into walls"],
+  malta:["The Great Siege","Malta withstood the Great Siege unbroken, so the first time it is walled in with no legal move, it turns up to 3 of the rival squares besieging its colony into walls"],
   dominican:["Merengue","the Dominican merengue never stops moving, so it scores 1 bonus point for every 4 pieces it places"],
   senegal:["Baobab","Senegal's baobab, the tree of life, spreads wide, so it scores 1 bonus point for every long, stretched piece it plays (4+ cells in a line)"],
   chile:["Miner","Chile's miners cut corner-to-corner through solid rock, so once per game one piece may link off the map's walls, not just its own color"],
   morocco:["The Bazaar","in a Marrakesh souk everything is up for trade, so once per game it buys back a played piece for its smallest unused one"],
   brazil:["Carnival","at Carnival everyone dances together, so once per game one piece may link corner to corner off ANY color"],
-  mexico:["Chinampas","the Aztecs farmed floating gardens reclaimed from the lake, so the first time a placement seals an empty pocket it claims up to 5 of those cells as land"],
-  nepal:["Himalayan Ascent","Nepal's climbers summit the impossible, so once per game one piece anchors on its color then climbs over open ground, walls, or up to 4 rival cells, all becoming Nepal's"],
+  mexico:["Chinampas","the Aztecs farmed floating gardens reclaimed from the lake, so twice per game, when a placement seals an empty pocket, it claims up to 8 of those cells as land"],
+  nepal:["Himalayan Ascent","Nepal's climbers summit the impossible, so once per game one piece anchors on its color then climbs over open ground, walls, or up to 5 rival cells, all becoming Nepal's"],
   netherlands:["Oranje","the Dutch built a golden age on open trade under the House of Orange, so once per game it swaps an unused piece for any unused piece in a rival's tray, each keeping the other's shape"],
 };
 
 /* Powers, a cohesive microbiology-lab register for the petri dish. */
 const POWERS = {
-  seed:{name:"Inoculate",charges:1,target:"empty",picks:1,trigger:"tap, then click an empty square",effect:"Adds 1 square of your color there."},
-  block:{name:"Calcify",charges:1,target:"empty",picks:1,trigger:"tap, then click an empty square",effect:"Hardens that square into a wall."},
-  clear:{name:"Dissolve",charges:1,target:"own",picks:1,trigger:"tap, then click one of your squares",effect:"Dissolves that square to open a corner."},
-  bridge:{name:"Splice",charges:1,target:"arm",picks:0,trigger:"tap, then place a piece",effect:"That piece may touch your color edge to edge."},
-  graft:{name:"Engulf",charges:1,target:"enemy",picks:1,trigger:"tap, then click a rival square next to yours",effect:"Engulfs one rival square that touches your color, turning it into yours."},
-  spore:{name:"Sporulate",charges:1,target:"auto",picks:0,trigger:"tap to sprout",effect:"Instantly sprouts 2 new squares on open corners of your colony."},
-  blight:{name:"Sterilize",charges:1,target:"enemyAny",picks:1,trigger:"tap, then click any rival square",effect:"Removes one rival square anywhere on the board."},
-  reserve:{name:"Fallow",charges:1,target:"empty",picks:1,trigger:"tap, then click an empty square",effect:"Holds that square fallow: nobody else can build on it until your next turn."},
-  terraform:{name:"Erode",charges:1,target:"wall",picks:1,trigger:"tap, then click a wall square",effect:"Wears that wall down into open ground, permanently."},
-  overgrow:{name:"Encroach",charges:1,target:"arm2",picks:0,trigger:"tap, then place a piece",effect:"That piece may cover exactly one rival square, capturing it."},
+  seed:{name:"Seed",charges:1,target:"empty",picks:1,trigger:"tap, then click an empty square",effect:"Adds 1 square of your color there."},
+  block:{name:"Wall",charges:1,target:"empty",picks:1,trigger:"tap, then click an empty square",effect:"Hardens that square into a wall."},
+  clear:{name:"Clear",charges:1,target:"own",picks:1,trigger:"tap, then click one of your squares",effect:"Dissolves that square to open a corner."},
+  bridge:{name:"Bridge",charges:1,target:"arm",picks:0,trigger:"tap, then place a piece",effect:"That piece may touch your color edge to edge."},
+  graft:{name:"Graft",charges:1,target:"enemy",picks:1,trigger:"tap, then click a rival square next to yours",effect:"Engulfs one rival square that touches your color, turning it into yours."},
+  spore:{name:"Spore",charges:1,target:"auto",picks:0,trigger:"tap to sprout",effect:"Instantly sprouts 2 new squares on open corners of your colony."},
+  blight:{name:"Blight",charges:1,target:"enemyAny",picks:1,trigger:"tap, then click any rival square",effect:"Removes one rival square anywhere on the board."},
+  reserve:{name:"Reserve",charges:1,target:"empty",picks:1,trigger:"tap, then click an empty square",effect:"Holds that square fallow: nobody else can build on it until your next turn."},
+  terraform:{name:"Reshape",charges:1,target:"wall",picks:1,trigger:"tap, then click a wall square",effect:"Wears that wall down into open ground, permanently."},
+  overgrow:{name:"Overgrow",charges:1,target:"arm2",picks:0,trigger:"tap, then place a piece",effect:"That piece may cover exactly one rival square, capturing it."},
 };
 const POWER_IDS = Object.keys(POWERS);
 
@@ -244,11 +244,11 @@ const cloneB=bd=>bd.map(row=>row.slice());
 // og:Overgrow may cover exactly one rival cell, blk:Set of reserved cells
 // this seat may not use}.
 function valid(board,cells,seat,first,start,x){x=x||{};const [H,W]=dimsOf(board);let og=0;
-  if(x.asc){ // Himalayan Ascent: anchor edge-to-edge on own color, then climb over anything (cap 4 covered)
+  if(x.asc){ // Himalayan Ascent: anchor edge-to-edge on own color, then climb over anything (cap 5 covered)
     let covered=0,anchored=false;
     for(const [r,c] of cells){if(!inB(r,c,H,W))return false;const v=board[r][c];
       if(v===-2)return false;                 // never cover the void/seam
-      if(v!==0){covered++;if(covered>4)return false;} // walls or rival cells, capped at 4
+      if(v!==0){covered++;if(covered>5)return false;} // walls or rival cells, capped at 5
       for(const [dr,dc] of ORTH){const a=r+dr,b=c+dc;if(inB(a,b,H,W)&&board[a][b]===seat){anchored=true;break;}}}
     return anchored;}
   for(const [r,c] of cells){if(!inB(r,c,H,W))return false;
@@ -443,14 +443,25 @@ function sealedCells(board){const [H,W]=dimsOf(board);const seen=Array.from({len
   while(stack.length){const [r,c]=stack.pop();for(const [dr,dc] of ORTH){const a=r+dr,b=c+dc;if(inB(a,b,H,W)&&board[a][b]===0&&!seen[a][b]){seen[a][b]=true;stack.push([a,b]);}}}
   const pocket=[];for(let r=0;r<H;r++)for(let c=0;c<W;c++)if(board[r][c]===0&&!seen[r][c])pocket.push([r,c]);
   return pocket;}
-// Mexico's Chinampas: after a placement, claim up to 5 sealed-pocket cells nearest
+// Mexico's Chinampas: after a placement, claim up to 8 sealed-pocket cells nearest
 // the piece just played. Returns the cells to fill (empty if nothing is sealed).
 function chinampasClaim(board,anchor){const pk=sealedCells(board);if(!pk.length)return [];
   const dist=([r,c])=>Math.min(...anchor.map(([ar,ac])=>Math.abs(r-ar)+Math.abs(c-ac)));
-  return pk.sort((a,b)=>dist(a)-dist(b)).slice(0,5);}
+  return pk.sort((a,b)=>dist(a)-dist(b)).slice(0,8);}
+// Botswana's Okavango: floodwaters fan out from a just-placed piece, claiming the
+// nearest open cells (BFS outward from the piece) up to a cap.
+function floodClaim(board,cells,seat,cap){const [H,W]=dimsOf(board);const seen=new Set(cells.map(([r,c])=>r+","+c));const out=[];const q=[...cells];
+  while(q.length&&out.length<cap){const [r,c]=q.shift();
+    for(const [dr,dc] of ORTH){const a=r+dr,b=c+dc,k=a+","+b;if(!inB(a,b,H,W)||seen.has(k))continue;seen.add(k);if(board[a][b]===0){out.push([a,b]);q.push([a,b]);if(out.length>=cap)break;}}}
+  return out;}
+// Kyrgyzstan's Silk Road: the caravan "arrives" when a freshly placed piece sits
+// edge- or corner-adjacent to the caravan marker.
+function arrivesAtCaravan(cells,car){for(const [r,c] of cells)for(const [dr,dc] of [...ORTH,...DIAG])if(r+dr===car.r&&c+dc===car.c)return true;return false;}
+// Chebyshev distance from cell (r,c) to a seat's nearest square (how far the caravan travels).
+function caravanDist(board,seat,r,c){const [H,W]=dimsOf(board);let best=99;for(let a=0;a<H;a++)for(let b=0;b<W;b++)if(board[a][b]===seat){const d=Math.max(Math.abs(a-r),Math.abs(b-c));if(d<best)best=d;}return best===99?0:best;}
 // Seats whose civ carries a tile-related trait, for special-tile resolution.
 function traitSets(seats,count){const shield=new Set(),burst=new Set(),bastion=new Set();
-  for(let s=1;s<=count;s++){const cv=seats[s-1]&&seats[s-1].civ;if(cv==="botswana")shield.add(s);if(cv==="kyrgyzstan")burst.add(s);if(cv==="malta")bastion.add(s);}
+  for(let s=1;s<=count;s++){const cv=seats[s-1]&&seats[s-1].civ;if(cv==="botswana")shield.add(s);if(cv==="kyrgyzstan")burst.add(s);}
   return {shield,burst,bastion};}
 
 // Resolve special tiles stepped on by a placement, honoring trait immunities
@@ -513,11 +524,15 @@ const primaryBtn={fontFamily:THEME.display,fontWeight:700,fontSize:15,padding:"1
 const chip=c=>({fontFamily:THEME.mono,fontSize:11,padding:"3px 8px",borderRadius:6,border:`1px solid ${c}`,color:c});
 const toastStyle={position:"fixed",bottom:22,left:"50%",transform:"translateX(-50%)",background:"var(--panel)",border:"1px solid var(--accent)",color:"var(--ink)",padding:"8px 16px",borderRadius:20,fontFamily:THEME.mono,fontSize:12.5,boxShadow:"0 8px 30px rgba(0,0,0,.5)",zIndex:60};
 const overlay={position:"fixed",inset:0,background:"rgba(6,8,11,.78)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:50,padding:16};
+// Team identity colors: soft pastels, kept clear of the saturated nation palette,
+// so in team mode a whole team reads as one hue on the board at a glance.
+const TEAM_PASTEL={1:"#8FB6E8",2:"#EDA9C6",3:"#C3A6E6"};
+const CARAVAN_MIN=6; // Silk Road: a caravan must be dropped at least this far (Chebyshev) from all your pieces
 
 // ===== 9. SHARED UI COMPONENTS =============================================
 function Shell({children,wide,theme}){const th=theme||THEMES.dark;
   const vars={"--bg":th.bg,"--panel":th.panel,"--line":th.line,"--grid":th.grid,"--cell":th.cell,"--wall":th.wall,"--wallH":th.wallH,"--ink":th.ink,"--muted":th.muted,"--accent":th.accent,"--btnInk":th.btnInk};
-  return(<div style={{...vars,minHeight:"100%",background:th.bg,color:th.ink,fontFamily:"'Hanken Grotesk',system-ui,sans-serif",padding:"clamp(10px,2.5vw,22px) clamp(8px,2.2vw,18px) 40px",transition:"background .3s,color .3s"}}>
+  return(<div style={{...vars,minHeight:"100%",background:th.bg,color:th.ink,fontFamily:"'Hanken Grotesk',system-ui,sans-serif",padding:"clamp(8px,2.2vw,22px) clamp(5px,1.4vw,18px) 40px",transition:"background .3s,color .3s"}}>
   <style>{`@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;800&family=Hanken+Grotesk:wght@400;500;600&family=Space+Mono&display=swap'); *{box-sizing:border-box;-webkit-tap-highlight-color:transparent} button{font-family:inherit;color:inherit;touch-action:manipulation;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none} select{outline:none} .petri-board-cells{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none} .petri-noscroll{scrollbar-width:none;-ms-overflow-style:none} .petri-noscroll::-webkit-scrollbar{display:none;width:0;height:0} @media (max-width:700px){select{font-size:16px !important;min-height:40px}} @keyframes evglow{0%{opacity:.95}65%{opacity:.5}100%{opacity:0}} @keyframes evchip{0%{opacity:0;transform:translateY(-4px)}12%{opacity:1;transform:translateY(0)}75%{opacity:1}100%{opacity:0}} @keyframes quakeShake{0%,100%{transform:translate(0,0)}15%{transform:translate(-3px,2px)}30%{transform:translate(3px,-2px)}45%{transform:translate(-3px,-1px)}60%{transform:translate(2px,2px)}80%{transform:translate(-1px,1px)}}`}</style>
   <div style={{maxWidth:wide?940:700,margin:"0 auto"}}>{children}</div></div>);}
 function Title({small}){const T=THEME;return(<div style={{textAlign:small?"left":"center",marginBottom:small?0:18}}>
@@ -614,7 +629,7 @@ function App(){
   const [vw,setVw]=useState(typeof window!=="undefined"?window.innerWidth:1024);
   const [vh,setVh]=useState(typeof window!=="undefined"?window.innerHeight:768);
   useEffect(()=>{const h=()=>{setVw(window.innerWidth);setVh(window.innerHeight);};window.addEventListener("resize",h);window.addEventListener("orientationchange",h);return()=>{window.removeEventListener("resize",h);window.removeEventListener("orientationchange",h);};},[]);
-  const mob=Math.min(vw,vh)<500;
+  const mob=vw<820; // phones/narrow windows only; a short-but-wide laptop stays on the desktop layout
   // Pinch-to-zoom & drag-to-pan for the board (touch only). Big maps (up to
   // 34x34) render every cell far too small to tap on a phone, so the board
   // itself needs to zoom, on top of the existing tap+nudge fallback. Live
@@ -669,7 +684,10 @@ function App(){
   const teamOf=useCallback(s=>teamMode?((seats[s-1]&&seats[s-1].team)||0):0,[seats,teamMode]);
   const matesOf=useCallback(s=>{const t=teamOf(s);if(!t)return new Set();const m=new Set();for(let i=1;i<=count;i++)if(i!==s&&teamOf(i)===t)m.add(i);return m;},[teamOf,count]);
   const variantOf=useCallback(s=>{const c=civOf(s);let v=0;for(let i=1;i<s;i++)if(seats[i-1].civ===c)v++;return v;},[seats,civOf]);
-  const colorOf=useCallback(s=>{const b=CIVS[civOf(s)].color,v=variantOf(s);return v?shade(b,v===1?-0.32:v===2?0.32:-0.55):b;},[civOf,variantOf]);
+  const colorOf=useCallback(s=>{const t=teamOf(s);
+    if(t){const base=TEAM_PASTEL[t]||CIVS[civOf(s)].color;let idx=0;for(let i=1;i<s;i++)if(teamOf(i)===t)idx++;
+      return idx?shade(base,idx===1?-0.24:idx===2?0.22:-0.42):base;} // teammates: same pastel, slightly shaded apart
+    const b=CIVS[civOf(s)].color,v=variantOf(s);return v?shade(b,v===1?-0.32:v===2?0.32:-0.55):b;},[civOf,variantOf,teamOf]);
   const glyphOf=useCallback(s=>{const c=civOf(s);let dup=false;for(let i=1;i<=count;i++)if(i!==s&&seats[i-1].civ===c)dup=true;return dup?GLYPHS[(s-1)%4]:null;},[seats,count,civOf]);
   const isFirst=useCallback(s=>!used[s]||Object.keys(used[s]).length===0,[used]);
   const curHuman=()=>seats[turn-1]?.kind==="human";
@@ -685,7 +703,12 @@ function App(){
   const [traitUsed,setTraitUsed]=useState({});
   const [carnArmed,setCarnArmed]=useState(false);const [bazaarPick,setBazaarPick]=useState(false);const [minerArmed,setMinerArmed]=useState(false);
   const [ascentArmed,setAscentArmed]=useState(false); // Nepal: next piece climbs over anything
-  const [lcArmed,setLcArmed]=useState(false); // Guatemala: next piece lands anywhere on open ground
+  const [lcArmed,setLcArmed]=useState(false); // Guatemala: next piece grants an extra placement
+  const [okaArmed,setOkaArmed]=useState(false); // Botswana: in flood-selection mode (tap 5 squares)
+  const [floodPick,setFloodPick]=useState([]);  // the squares tapped so far, up to 5
+  const [floods,setFloods]=useState([]);        // active Okavango floods: [{seat, cells:[[r,c],...], turnsLeft}]
+  const [caravanMode,setCaravanMode]=useState(false); // Kyrgyzstan: tapping to drop a distant caravan
+  const [caravan,setCaravan]=useState(null);    // active caravan: {seat, r, c, dist}
   const [ruil,setRuil]=useState(null); // Netherlands: {give} while choosing a rival piece to take
   const [reserved,setReserved]=useState(null);
   // Miner is now a once-per-game armable (like Carnival): mineAvail means the
@@ -711,7 +734,7 @@ function App(){
       const pr=sr+dr*d,pc=sc+dc*d;let done2=false;for(let rad=0;rad<6&&!done2;rad++)for(let a=pr-rad;a<=pr+rad&&!done2;a++)for(let e=pc-rad;e<=pc+rad&&!done2;e++)if(a>=0&&a<BH&&e>=0&&e<BW&&b[a][e]===0){b[a][e]=s;done2=true;}}
     setBoard(b);setSpecials(sp);setStarts(st);setCopies(cp);setUsed(u);setLast(l);setCharges(ch);setDone(new Set());
     setScheme(SCHEMES[0]);setPundo(null);setOverHidden(false);
-    setTraitUsed({});setCarnArmed(false);setBazaarPick(false);setMinerArmed(false);setAscentArmed(false);setLcArmed(false);setRuil(null);setReserved(null);
+    setTraitUsed({});setCarnArmed(false);setBazaarPick(false);setMinerArmed(false);setAscentArmed(false);setLcArmed(false);setOkaArmed(false);setFloodPick([]);setFloods([]);setCaravan(null);setCaravanMode(false);setRuil(null);setReserved(null);
     setInfect(new Set());setEventFlash(null);clearTimeout(bannerT.current);evtClock.current=evtDelay(count);evtTurns.current=0;
     setTurn(1);setStep(0);setAskConcede(false);setSel(null);setSelId(null);setHover(null);setTent(null);setArmed(false);setTargeting(null);setOver(false);setToast("");setMobSheet(false);busy.current=false;
     zoomRef.current=1;panRef.current={x:0,y:0};setZoom(1);setPan({x:0,y:0});setScreen("game");}
@@ -772,7 +795,7 @@ function App(){
   },[sel,armed,carnArmed,minerArmed,ascentArmed,lcArmed]); // eslint-disable-line
   // Close the mobile abilities sheet the moment an ability arms or starts targeting,
   // so the player is looking at the board when it's time to act on it.
-  useEffect(()=>{if(armed||targeting||carnArmed||minerArmed||ascentArmed||lcArmed||ruil||bazaarPick)setMobSheet(false);},[armed,targeting,carnArmed,minerArmed,ascentArmed,lcArmed,ruil,bazaarPick]);
+  useEffect(()=>{if(armed||targeting||carnArmed||minerArmed||ascentArmed||lcArmed||okaArmed||caravanMode||ruil||bazaarPick)setMobSheet(false);},[armed,targeting,carnArmed,minerArmed,ascentArmed,lcArmed,okaArmed,caravanMode,ruil,bazaarPick]);
   function cellEnter(r,c){curCell.current=[r,c];if(mob||!sel||tent||!curHuman()||targeting)return;const cells=anchorWith(sel,r,c);setHover({cells,valid:valid(board,cells,turn,isFirst(turn),startOf(turn),humanX())});}
 
   function usePower(){if(!oPowers||!curHuman()||over)return;const pw=seats[turn-1].power;
@@ -818,7 +841,27 @@ function App(){
     if(P.target==="enemyAny"&&(v<=0||v===turn||mates.has(v))){flash("Pick a rival square");return;}
     if(P.target==="empty"&&t.picks.some(([a,b])=>a===r&&b===c))return;const picks=[...t.picks,[r,c]];
     if(picks.length>=t.need)applyPower(t.id,picks);else setTargeting({...t,picks});}
-  function cellClick(r,c){if(over)return;if(targeting){targetClick(r,c);return;}if(!sel||!curHuman())return;
+  function cellClick(r,c){if(over)return;
+    if(okaArmed){ // Okavango: tap open squares touching your colony to flood
+      const s=turn,key=r+","+c;
+      if(floodPick.some(([a,b])=>a===r&&b===c)){setFloodPick(p=>p.filter(([a,b])=>!(a===r&&b===c)));return;} // tap again to deselect
+      if(board[r][c]!==0){flash("Flood open ground only");return;}
+      const H=board.length,W=board[0].length;let touches=false;
+      for(const [dr,dc] of [...ORTH,...DIAG]){const a=r+dr,b=c+dc;if(inB(a,b,H,W)&&(board[a][b]===s||floodPick.some(([x,y])=>x===a&&y===b)))touches=true;}
+      if(!touches){flash("Each flood square must touch your colony");return;}
+      const next=[...floodPick,[r,c]];
+      if(next.length>=5){commitFlood(next);}else{setFloodPick(next);flash(`Okavango, ${next.length}/5 squares chosen.`);}
+      return;}
+    if(board[r][c]===-4&&caravan&&caravan.seat===turn&&curHuman()&&!busy.current){ // tap your caravan to pick it up
+      const nb=cloneB(live.current.board);nb[r][c]=0;setBoard(nb);setCaravan(null);setCaravanMode(true);flash("Caravan lifted, tap a new far-off square.");return;}
+    if(caravanMode){ // Silk Road: drop the caravan on a far-off open square
+      if(board[r][c]!==0){flash("The caravan needs open ground");return;}
+      const s=turn,d=caravanDist(board,s,r,c);
+      if(d<CARAVAN_MIN){flash(`Too close, at least ${CARAVAN_MIN} away from your pieces`);return;}
+      const nb=cloneB(live.current.board);nb[r][c]=-4;setBoard(nb);
+      setCaravan({seat:s,r,c,dist:d});setTraitUsed(t=>({...t,[s]:true}));setCaravanMode(false);
+      flash(`Caravan set out ${d} away, reach it to claim the haul.`);return;}
+    if(targeting){targetClick(r,c);return;}if(!sel||!curHuman())return;
     if((used[turn]?.[selId]||0)>=copies){flash("You have no more of that piece");setSel(null);setSelId(null);return;}
     const cells=anchorCells(r,c);const ok=valid(board,cells,turn,isFirst(turn),startOf(turn),humanX());
     if(mob){ // touch: always drop the piece so it's visible, mark illegal spots red, let arrows fine-tune
@@ -840,10 +883,14 @@ function App(){
   function commit(cells,id,seat){const nb=cloneB(live.current.board);for(const [r,c] of cells)nb[r][c]=seat;
     const sp=new Map(live.current.specials);const {shield,burst,bastion}=traitSets(seats,opts.traits?count:0);
     const msg=applySpecials(cells,seat,nb,sp,{shield,burst,bastion,mates:matesOf(seat)});setPundo(null);
-    if(oTraits&&civOf(seat)==="mexico"&&!live.current.traitUsed[seat]){ // Chinampas: reclaim a freshly-sealed pocket
+    if(oTraits&&civOf(seat)==="mexico"&&(live.current.traitUsed[seat]||0)<2){ // Chinampas: reclaim a freshly-sealed pocket, twice per game
       const claim=chinampasClaim(nb,cells);
-      if(claim.length){for(const [r,c] of claim)nb[r][c]=seat;setTraitUsed(t=>({...t,[seat]:true}));
+      if(claim.length){for(const [r,c] of claim)nb[r][c]=seat;setTraitUsed(t=>({...t,[seat]:(t[seat]||0)+1}));
         msg.push({type:"chinampas",text:`Chinampas, ${claim.length} sealed cell${claim.length>1?"s":""} reclaimed as your land`});}}
+    if(oTraits&&caravan&&caravan.seat===seat&&arrivesAtCaravan(cells,caravan)){ // Silk Road: the colony reaches its distant caravan
+      nb[caravan.r][caravan.c]=seat;const bonus=Math.max(3,Math.min(11,caravan.dist));
+      const claim=floodClaim(nb,[[caravan.r,caravan.c]],seat,bonus);for(const [r,c] of claim)nb[r][c]=seat;
+      msg.push({type:"caravan",text:`Silk Road! The caravan arrives, ${claim.length+1} squares claimed for the long haul`});setCaravan(null);}
     setBoard(nb);setSpecials(sp);setUsed(u=>({...u,[seat]:{...u[seat],[id]:((u[seat]||{})[id]||0)+1}}));setLast(l=>({...l,[seat]:id}));if(msg.length)flash(msg.map(o=>o.text).join(" · "));}
   function submit(){if(!tent||busy.current)return;const s=turn,id=tent.id;
     if(tent.ok===false){flash("That spot is illegal. The piece must link to your color corner to corner.");vib([12,40,12]);return;}
@@ -865,7 +912,7 @@ function App(){
       const uu={...(used[s]||{}),[id]:((used[s]?.[id]||0)+1)};
       if(anyMove(nb,uu,s,false,startOf(s),copies,{blk:blockedFor(s),mates:matesOf(s)})){flash("Long Count! The cycle turns, place one more piece.");busy.current=false;return;}}
     advance(s);setTimeout(()=>{busy.current=false;},80);}
-  function concede(){const s=turn;const nd=new Set(done);nd.add(s);setDone(nd);setSel(null);setSelId(null);setTent(null);setTargeting(null);setArmed(false);setCarnArmed(false);setBazaarPick(false);setMinerArmed(false);setAscentArmed(false);setLcArmed(false);setRuil(null);flash(`${CIVS[civOf(s)].name} bends the knee.`);advance(s,nd);}
+  function concede(){const s=turn;const nd=new Set(done);nd.add(s);setDone(nd);setSel(null);setSelId(null);setTent(null);setTargeting(null);setArmed(false);setCarnArmed(false);setBazaarPick(false);setMinerArmed(false);setAscentArmed(false);setLcArmed(false);setOkaArmed(false);setFloodPick([]);setCaravanMode(false);setRuil(null);flash(`${CIVS[civOf(s)].name} bends the knee.`);advance(s,nd);}
 
   function advance(from,doneSet){setTimeout(()=>{const L=live.current,n=L.count,dn=doneSet||L.done;let fired=false;
     if(oEvents&&!over){try{
@@ -879,7 +926,7 @@ function App(){
       const blk2=LL.reserved&&LL.reserved.seat!==cand&&!dn.has(LL.reserved.seat)?new Set([LL.reserved.k]):null;
       if(anyMove(LL.board,LL.used[cand]||{},cand,LL.isFirst(cand),LL.startOf(cand),LL.copies,{mine:mineAvail(cand),blk:blk2})){
         if(LL.reserved&&(LL.reserved.seat===cand||dn.has(LL.reserved.seat)))setReserved(null); // flag expires when it's your turn again (or you're out)
-        setTurn(cand);setStep(x=>x+1);setArmed(false);setCarnArmed(false);setBazaarPick(false);setMinerArmed(false);setAscentArmed(false);setLcArmed(false);setRuil(null);setTargeting(null);return;}}
+        setTurn(cand);setStep(x=>x+1);setArmed(false);setCarnArmed(false);setBazaarPick(false);setMinerArmed(false);setAscentArmed(false);setLcArmed(false);setOkaArmed(false);setFloodPick([]);setCaravanMode(false);setRuil(null);setTargeting(null);return;}}
       setOverSeed(Math.random());setOver(true);};
     if(fired)setTimeout(pick,1050);else pick();},0);}
 
@@ -955,10 +1002,26 @@ function App(){
     const sp=new Map(L.specials);const {shield,burst,bastion}=traitSets(seats,opts.traits?L.count:0);
     const spMsg=applySpecials(mv.cells,s,nb,sp,{shield,burst,bastion,mates:matesOf(s)});
     const breach=spMsg.find(m=>m.type==="passage");if(breach)flash(`${CIVS[civOf(s)].name} opens a Passage, a spore crosses to the far dish.`);
-    // Mexico's Chinampas: auto-reclaim a freshly-sealed pocket, once per game.
-    if(oTraits&&civOf(s)==="mexico"&&!L.traitUsed[s]){const claim=chinampasClaim(nb,mv.cells);
-      if(claim.length){for(const [r,c] of claim)nb[r][c]=s;setTraitUsed(t=>({...t,[s]:true}));
+    // Mexico's Chinampas: auto-reclaim a freshly-sealed pocket, twice per game.
+    if(oTraits&&civOf(s)==="mexico"&&(L.traitUsed[s]||0)<2){const claim=chinampasClaim(nb,mv.cells);
+      if(claim.length){for(const [r,c] of claim)nb[r][c]=s;setTraitUsed(t=>({...t,[s]:(t[s]||0)+1}));
         flash(`${CIVS[civOf(s)].name} builds Chinampas, reclaiming ${claim.length} sealed cell${claim.length>1?"s":""}.`);}}
+    // Botswana's Okavango: once per game, flood the open ground touching its colony for two of its turns.
+    if(oTraits&&civOf(s)==="botswana"&&!L.traitUsed[s]&&placed(s)>=3){
+      const H=nb.length,W=nb[0].length,colony=[];for(let r=0;r<H;r++)for(let cc=0;cc<W;cc++)if(nb[r][cc]===s)colony.push([r,cc]);
+      const fc=floodClaim(nb,colony.length?colony:mv.cells,s,5);
+      if(fc.length>=3){for(const [r,c] of fc)nb[r][c]=-3;setFloods(f=>[...f,{seat:s,cells:fc,turnsLeft:3}]);setTraitUsed(t=>({...t,[s]:true}));
+        flash(`${CIVS[civOf(s)].name}'s Okavango floods ${fc.length} squares of open ground.`);}}
+    // Kyrgyzstan's Silk Road: reach a pending caravan, or send one out to distant ground.
+    if(oTraits&&civOf(s)==="kyrgyzstan"){
+      if(caravan&&caravan.seat===s&&arrivesAtCaravan(mv.cells,caravan)){nb[caravan.r][caravan.c]=s;
+        const bonus=Math.max(3,Math.min(11,caravan.dist));const cl=floodClaim(nb,[[caravan.r,caravan.c]],s,bonus);for(const [r,c] of cl)nb[r][c]=s;
+        setCaravan(null);flash(`${CIVS[civOf(s)].name}'s caravan arrives, claiming ${cl.length+1} squares.`);}
+      else if(!caravan&&!L.traitUsed[s]&&placed(s)>=4){ // drop a caravan on distant open ground
+        const [H,W]=[nb.length,nb[0].length];let best=null,bd=-1;
+        for(let r=0;r<H;r+=2)for(let c=0;c<W;c+=2){if(nb[r][c]!==0)continue;const d=caravanDist(nb,s,r,c);if(d>=CARAVAN_MIN&&d<=CARAVAN_MIN+4&&d>bd){bd=d;best=[r,c];}}
+        if(best){nb[best[0]][best[1]]=-4;setCaravan({seat:s,r:best[0],c:best[1],dist:bd});setTraitUsed(t=>({...t,[s]:true}));
+          flash(`${CIVS[civOf(s)].name} sends a Silk Road caravan out ${bd} squares.`);}}}
     let myUsed2={...myUsed,[mv.id]:(myUsed[mv.id]||0)+1};
     // Guatemala's Long Count: the cycle turns and it places a second piece this turn.
     if(oTraits&&civOf(s)==="guatemala"&&!L.traitUsed[s]){
@@ -973,14 +1036,33 @@ function App(){
       setTraitUsed(t=>({...t,[s]:true}));flash(`${CIVS[civOf(s)].name} trades via Oranje for ${CIVS[civOf(ruilRival)].name}'s ${ruilTakeId}.`);}
     setLast(l=>({...l,[s]:mv.id}));advance(s);
     }catch(e){advance(s);}}
-  useEffect(()=>{if(screen!=="game"||over)return;const s=turn;if(done.has(s))return;
-    if(!anyMove(board,used[s]||{},s,isFirst(s),startOf(s),copies,{mine:mineAvail(s),blk:blockedFor(s),mates:matesOf(s)})){const nd=new Set(done);nd.add(s);
-      setDone(nd);flash(`${CIVS[civOf(s)].name} is hemmed in, out of the fight.`);advance(s,nd);return;}
+  useEffect(()=>{if(screen!=="game"||over)return;const s=turn;if(done.has(s))return;let eb=board;
+    if(floods.some(f=>f.seat===s)){ // Okavango: this seat's flood ticks, then vanishes after 3 of its turns
+      const nb=cloneB(live.current.board);const kept=[];let receded=false;
+      for(const f of floods){if(f.seat!==s){kept.push(f);continue;}
+        if((f.turnsLeft||1)>1){kept.push({...f,turnsLeft:(f.turnsLeft||1)-1});}
+        else{for(const [r,c] of f.cells){if(nb[r][c]===-3)nb[r][c]=0;}receded=true;}}
+      if(receded)setBoard(nb);setFloods(kept);eb=receded?nb:eb;
+      if(receded)flash(`${CIVS[civOf(s)].name}'s floodwaters recede, the delta returns to open ground.`);}
+    if(!anyMove(eb,used[s]||{},s,isFirst(s),startOf(s),copies,{mine:mineAvail(s),blk:blockedFor(s),mates:matesOf(s)})){
+      // Malta's Great Siege: trapped with no move, it walls off up to 3 of the rival squares besieging its colony.
+      let siege=0;
+      if(oTraits&&civOf(s)==="malta"&&!traitUsed[s]){const nb=cloneB(live.current.board),H=nb.length,W=nb[0].length,mt=matesOf(s);
+        const edge=[],corner=[],seen=new Set();
+        for(let r=0;r<H;r++)for(let c=0;c<W;c++){if(nb[r][c]!==s)continue;
+          for(const [dr,dc] of ORTH){const a=r+dr,b=c+dc,k=a+","+b;if(inB(a,b,H,W)&&nb[a][b]>0&&nb[a][b]!==s&&!mt.has(nb[a][b])&&!seen.has(k)){seen.add(k);edge.push([a,b]);}}
+          for(const [dr,dc] of DIAG){const a=r+dr,b=c+dc,k=a+","+b;if(inB(a,b,H,W)&&nb[a][b]>0&&nb[a][b]!==s&&!mt.has(nb[a][b])&&!seen.has(k)){seen.add(k);corner.push([a,b]);}}}
+        const pick=[...edge,...corner].slice(0,3); // edge-adjacent besiegers first
+        if(pick.length){for(const [a,b] of pick)nb[a][b]=-1;setBoard(nb);siege=pick.length;}
+        setTraitUsed(t=>({...t,[s]:true}));}
+      const nd=new Set(done);nd.add(s);setDone(nd);
+      flash(siege?`${CIVS[civOf(s)].name} declares the Great Siege, walling off ${siege} besieging square${siege>1?"s":""}!`:`${CIVS[civOf(s)].name} is hemmed in, out of the fight.`);
+      advance(s,nd);return;}
     if(seats[s-1].kind==="cpu"){setScheme(SCHEMES[Math.floor(Math.random()*SCHEMES.length)]);const t=setTimeout(()=>cpuTurn(s),520);return()=>clearTimeout(t);}
   },[turn,step,screen,over]); // eslint-disable-line
   useEffect(()=>{if(over)vib([20,40,20,40,60]);},[over]); // eslint-disable-line
 
-  const scoreOf=s=>{let sq=0;for(let r=0;r<N;r++)for(let c=0;c<BW;c++)if(board[r][c]===s)sq++;const u=used[s]||{};const tot=Object.values(u).reduce((a,b)=>a+b,0);const all=tot===PIECE_IDS.length*copies;let b=0;if(all){b+=15;if(last[s]==="mono")b+=5;}
+  const scoreOf=s=>{let sq=0;for(let r=0;r<N;r++)for(let c=0;c<BW;c++)if(board[r][c]===s)sq++;if(caravan&&caravan.seat===s)sq++;for(const f of floods)if(f.seat===s)sq+=f.cells.length;const u=used[s]||{};const tot=Object.values(u).reduce((a,b)=>a+b,0);const all=tot===PIECE_IDS.length*copies;let b=0;if(all){b+=15;if(last[s]==="mono")b+=5;}
     if(oTraits&&civOf(s)==="tonga"){let pent=0;for(const id of Object.keys(u))if(PSIZE[id]===5)pent+=u[id];b+=pent;}
     if(oTraits&&civOf(s)==="dominican")b+=Math.floor(tot/4);
     if(oTraits&&civOf(s)==="senegal"){let lng=0;for(const id of Object.keys(u))if(PLONG.has(id))lng+=u[id];b+=lng;}
@@ -1018,22 +1100,43 @@ function App(){
     if(minerArmed)return"Miner! This piece may link off the map's walls.";
     if(ascentArmed)return"Himalayan Ascent! Anchor edge-to-edge, then climb over walls and rivals.";
     if(lcArmed)return"Long Count! Place this piece, then you place one more.";
+    if(okaArmed)return`Okavango, tap 5 open squares touching your colony (${floodPick.length}/5).`;
+    if(caravanMode)return`Silk Road, tap an open square at least ${CARAVAN_MIN} from all your pieces.`;
     if(sel)return mob?"Nudge it with the D-pad, spin or flip, then Place.":"Spin it with R, flip with F, then drop it on the board.";
     return"Choose a piece and start spreading."+(oPowers?" Your power's waiting on the right.":"");}
   // Brazil's Carnival: arm/disarm; consumed on the next placement.
-  function toggleCarnival(){if(traitUsed[turn]||!curHuman()||over)return;
+  function toggleCarnival(){if(traitUsed[turn]||!curHuman()||over)return;if(placed(turn)<1){flash("Place your first piece before using an ability.");return;}
     setCarnArmed(a=>!a);flash(carnArmed?"Carnival off":"Carnival! Your next piece may link off any color.");}
   // Chile's Miner: arm/disarm; consumed on the next placement.
-  function toggleMiner(){if(traitUsed[turn]||!curHuman()||over)return;
+  function toggleMiner(){if(traitUsed[turn]||!curHuman()||over)return;if(placed(turn)<1){flash("Place your first piece before using an ability.");return;}
     setMinerArmed(a=>!a);flash(minerArmed?"Miner off":"Miner! Your next piece may link off the map's walls.");}
   // Nepal's Himalayan Ascent: arm/disarm; the next piece climbs over anything.
-  function toggleAscent(){if(traitUsed[turn]||!curHuman()||over)return;
+  function toggleAscent(){if(traitUsed[turn]||!curHuman()||over)return;if(placed(turn)<1){flash("Place your first piece before using an ability.");return;}
     setAscentArmed(a=>!a);flash(ascentArmed?"Ascent off":"Himalayan Ascent! Your next piece may climb over walls and rivals.");}
   // Guatemala's Long Count: arm/disarm; placing your next piece grants an extra placement.
-  function toggleLongCount(){if(traitUsed[turn]||!curHuman()||over)return;
+  function toggleLongCount(){if(traitUsed[turn]||!curHuman()||over)return;if(placed(turn)<1){flash("Place your first piece before using an ability.");return;}
     setLcArmed(a=>!a);flash(lcArmed?"Long Count off":"Long Count! Place your next piece, then place one more.");}
+  // Botswana's Okavango: arm/disarm; your next placement floods, claiming open ground.
+  function toggleOkavango(){if(traitUsed[turn]||!curHuman()||over)return;if(placed(turn)<1){flash("Place your first piece before using an ability.");return;}
+    if(okaArmed){setOkaArmed(false);setFloodPick([]);flash("Okavango off");return;}
+    setArmed(false);setTargeting(null);setCaravanMode(false);setOkaArmed(true);setFloodPick([]);
+    flash("Okavango! Tap 5 open squares touching your colony to flood them.");}
+  // Commit the tapped Okavango squares: they flood, block everyone and score +5 for 3 turns, then vanish.
+  function commitFlood(picks){const s=turn;const nb=cloneB(live.current.board);for(const [r,c] of picks)nb[r][c]=-3;
+    setBoard(nb);setFloods(f=>[...f,{seat:s,cells:picks,turnsLeft:3}]);setTraitUsed(t=>({...t,[s]:true}));setOkaArmed(false);setFloodPick([]);
+    flash(`Okavango floods ${picks.length} squares (+${picks.length} while they hold), sealed for 3 turns.`);}
+  // Kyrgyzstan's Silk Road: enter caravan-placement mode, then tap a far-off open square.
+  function toggleSilkRoad(){if(!curHuman()||over)return;
+    if(caravan&&caravan.seat===turn){ // a caravan is already out: lift it to move it
+      const nb=cloneB(live.current.board);nb[caravan.r][caravan.c]=0;setBoard(nb);setCaravan(null);setCaravanMode(true);
+      flash("Caravan lifted, tap a new far-off square.");return;}
+    if(caravanMode){setCaravanMode(false);flash("Caravan off");return;}
+    if(traitUsed[turn])return;
+    if(placed(turn)<1){flash("Place your first piece before using an ability.");return;}
+    setArmed(false);setTargeting(null);setCaravanMode(true);
+    flash(`Silk Road, tap an open square at least ${CARAVAN_MIN} away from all your pieces.`);}
   // Netherlands' Oranje: enter swap mode by offering one of your unused pieces.
-  function toggleRuil(){if(traitUsed[turn]||!curHuman()||over)return;
+  function toggleRuil(){if(traitUsed[turn]||!curHuman()||over)return;if(placed(turn)<1){flash("Place your first piece before using an ability.");return;}
     if(ruil){setRuil(null);return;}
     setSel(null);setSelId(null);setTent(null);setRuil({give:null});
     flash("Oranje, tap one of your unused pieces to offer in trade.");}
@@ -1048,7 +1151,7 @@ function App(){
     setTraitUsed(t=>({...t,[turn]:true}));setRuil(null);
     flash(`Oranje, traded your ${give} for ${CIVS[civOf(rs)].name}'s ${take}.`);vib(14);}
   // Morocco's Bazaar: enter/exit the tray-pick mode.
-  function toggleBazaar(){if(traitUsed[turn]||!curHuman()||over)return;
+  function toggleBazaar(){if(traitUsed[turn]||!curHuman()||over)return;if(placed(turn)<1){flash("Place your first piece before using an ability.");return;}
     if(!bazaarPick){const anyUsedP=PIECE_IDS.some(id=>(used[turn]?.[id]||0)>0);
       if(!anyUsedP){flash("Nothing played yet, nothing to reclaim");return;}
       setSel(null);setSelId(null);setTent(null);}
@@ -1137,8 +1240,7 @@ function App(){
   const cur=turn,curCol=colorOf(cur);const standings=[...seatsN].sort((a,b)=>scoreOf(b)-scoreOf(a));const winner=over?standings[0]:null;
   const teamList=teamMode?[...new Set(seatsN.map(s=>teamOf(s)).filter(t=>t))]:[];
   const teamScore=t=>seatsN.filter(s=>teamOf(s)===t).reduce((a,s)=>a+scoreOf(s),0);
-  const TEAM_COL={1:"#4C86F0",2:"#E24BC4",3:"#F2B23E"}; // fixed team identity colors, kept clear of nation colors
-  const teamColor=t=>TEAM_COL[t]||T.accent;
+  const teamColor=t=>TEAM_PASTEL[t]||T.accent;
   const winTeam=(over&&teamList.length)?teamList.slice().sort((a,b)=>teamScore(b)-teamScore(a))[0]:0;
   const scs=seatsN.map(scoreOf);const everyoneStarted=seatsN.every(s=>placed(s)>=4);
   const fertile=(everyoneStarted&&Math.max(...scs)-Math.min(...scs)>=12)?seatsN[scs.indexOf(Math.min(...scs))]:0;
@@ -1157,21 +1259,26 @@ function App(){
       <button onClick={usePower} disabled={!usable} style={{...miniBtn,width:"100%",padding:"11px 12px",fontSize:12.5,opacity:usable?1:.4,borderColor:usable?T.accent:T.line,color:armed?"#0c0e12":T.ink,background:armed?T.accent:THEME.panel}}>
         {armed?"On (tap to cancel)":targeting?"Choosing target…":early?`Unlocks after ${POWER_MIN} pieces`:late?"Locked, too late now":ch>0?`Use, ${P.trigger}`:"No charges left"}</button>
     </div>;})():null;
-  const traitCardEl=(oTraits&&curHuman()&&!over&&["brazil","morocco","chile","nepal","netherlands","guatemala"].includes(civOf(cur)))?(()=>{
+  const traitCardEl=(oTraits&&curHuman()&&!over&&["brazil","morocco","chile","nepal","netherlands","guatemala","botswana","kyrgyzstan"].includes(civOf(cur)))?(()=>{
     const cv=civOf(cur);const spent=!!traitUsed[cur];
     const M={brazil:{tag:"CARNIVAL",on:carnArmed,toggle:toggleCarnival,desc:"Once per game: your next piece may link corner to corner off ANY color.",act:"Use, then place a piece",onLbl:"On (tap to cancel)"},
              chile:{tag:"MINER",on:minerArmed,toggle:toggleMiner,desc:"Once per game: your next piece may link corner to corner off the map's walls.",act:"Use, then place a piece",onLbl:"On (tap to cancel)"},
-             nepal:{tag:"HIMALAYAN ASCENT",on:ascentArmed,toggle:toggleAscent,desc:"Once per game: anchor one piece edge-to-edge on your color, then climb over open ground, walls, or up to 4 rival cells (which become yours).",act:"Use, then place a piece",onLbl:"On (tap to cancel)"},
+             nepal:{tag:"HIMALAYAN ASCENT",on:ascentArmed,toggle:toggleAscent,desc:"Once per game: anchor one piece edge-to-edge on your color, then climb over open ground, walls, or up to 5 rival cells (which become yours).",act:"Use, then place a piece",onLbl:"On (tap to cancel)"},
              guatemala:{tag:"LONG COUNT",on:lcArmed,toggle:toggleLongCount,desc:"Once per game: place your next piece, then immediately place one more in the same turn.",act:"Use, then place a piece",onLbl:"On (tap to cancel)"},
+             botswana:{tag:"OKAVANGO",on:okaArmed,toggle:toggleOkavango,desc:"Once per game: your next placement floods 5 open squares around your colony. They block everyone and score +5 for 3 turns, then vanish back to open ground.",act:"Use, then place a piece",onLbl:"On (tap to cancel)"},
+             kyrgyzstan:{tag:"SILK ROAD",on:caravanMode,toggle:toggleSilkRoad,desc:`Once per game: drop a caravan on open ground at least ${CARAVAN_MIN} away. It scores +1; reach it with your colony and claim a haul that grows with the distance.`,act:"Use, then tap a far square",onLbl:"Choosing… (tap to cancel)"},
              netherlands:{tag:"ORANJE",on:!!ruil,toggle:toggleRuil,desc:"Once per game: trade one of your unused pieces for any unused piece in a rival's tray (a Dutch Golden-Age barter).",act:"Use, then tap a piece to offer",onLbl:"Trading… (tap to cancel)"},
              morocco:{tag:"THE BAZAAR",on:bazaarPick,toggle:toggleBazaar,desc:"Once per game: reclaim a piece you've played, at the cost of your smallest unused piece.",act:"Use, then tap a played piece",onLbl:"Choosing… (tap to cancel)"}}[cv];
+    const locked=placed(cur)<1;const caravanOut=cv==="kyrgyzstan"&&caravan&&caravan.seat===cur;
+    const btnDisabled=(spent&&!caravanOut)||locked;
+    const btnLabel=locked?"Unlocks after your 1st piece":caravanOut?"Move caravan (tap it or here)":spent?"Already used this game":M.on?M.onLbl:M.act;
     return <div style={{...card,padding:"10px 12px",marginBottom:10,borderColor:M.on?colorOf(cur):T.line}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
         <span style={{fontFamily:T.mono,fontSize:10,color:colorOf(cur),letterSpacing:1.5,whiteSpace:"nowrap"}}>✦ {M.tag}</span>
-        <span style={{fontFamily:T.mono,fontSize:13,letterSpacing:1}}>{spent?"○":"●"}</span></div>
+        <span style={{fontFamily:T.mono,fontSize:13,letterSpacing:1}}>{spent&&!caravanOut?"○":"●"}</span></div>
       <div style={{fontSize:11.5,color:T.muted,margin:"4px 0 8px"}}>{M.desc}</div>
-      <button onClick={M.toggle} disabled={spent} style={{...miniBtn,width:"100%",padding:"11px 12px",fontSize:12.5,opacity:spent?.4:1,borderColor:spent?T.line:colorOf(cur),color:M.on?"#0c0e12":T.ink,background:M.on?colorOf(cur):THEME.panel}}>
-        {spent?"Already used this game":M.on?M.onLbl:M.act}</button>
+      <button onClick={M.toggle} disabled={btnDisabled} style={{...miniBtn,width:"100%",padding:"11px 12px",fontSize:12.5,opacity:btnDisabled?.4:1,borderColor:btnDisabled?T.line:colorOf(cur),color:M.on?"#0c0e12":T.ink,background:M.on?colorOf(cur):THEME.panel}}>
+        {btnLabel}</button>
     </div>;})():null;
   const hasSheet=mob&&(!!powerCardEl||!!traitCardEl);
   const zoomBtn={width:34,height:34,borderRadius:17,border:`1px solid ${BT.line}`,background:"rgba(12,14,18,.6)",backdropFilter:"blur(3px)",color:"#fff",fontSize:17,fontFamily:T.mono,lineHeight:"32px",padding:0,textAlign:"center",cursor:"pointer"};
@@ -1214,17 +1321,19 @@ function App(){
           <div style={{fontSize:9.5,color:T.muted,fontFamily:T.mono,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{PIECE_IDS.length*copies-placed(s)} left{out?" · out":""}{fertile===s&&!out?<span style={{color:"#8fae6b"}}> · fertile</span>:""}</div></div>);})}
     </div>}
     <div style={{display:"flex",gap:mob?10:18,flexWrap:"wrap",alignItems:"flex-start"}}>
-      <div style={{flex:"1 1 360px",maxWidth:560}}>
+      <div style={mob?{width:"100%",flex:"1 1 100%"}:{flex:"1 1 360px",maxWidth:560}}>
         <div ref={boardWrapRef} style={{position:"relative",overflow:mob?"hidden":"visible",touchAction:mob?(zoom>1?"none":"pan-y"):"auto",borderRadius:10}}>
         <div ref={transformRef} style={{transform:mob?`translate(${pan.x}px,${pan.y}px) scale(${zoom})`:"none",transformOrigin:"center center",transition:"transform .18s ease-out"}}>
         <div style={{position:"relative"}}>
         {eventFlash&&<><div style={{position:"absolute",inset:-3,borderRadius:13,pointerEvents:"none",zIndex:6,boxShadow:`inset 0 0 0 3px ${EVT_COLOR[eventFlash.id]||T.accent}, 0 0 22px 1px ${EVT_COLOR[eventFlash.id]||T.accent}`,animation:"evglow 1.7s ease-out forwards"}}/>
           <div style={{position:"absolute",top:8,left:8,zIndex:7,pointerEvents:"none",fontFamily:T.mono,fontSize:11,letterSpacing:1.5,padding:"4px 10px",borderRadius:7,background:"rgba(0,0,0,.6)",color:"#fff",animation:"evchip 1.8s ease-out forwards"}}>{eventFlash.name.toUpperCase()}</div></>}
-        <div onMouseLeave={()=>setHover(null)} className="petri-board-cells" style={{aspectRatio:`${BW}/${N}`,display:"grid",gridTemplateColumns:`repeat(${BW},1fr)`,gridTemplateRows:`repeat(${N},1fr)`,gap:1,background:BT.grid,padding:1,borderRadius:10,boxShadow:"inset 0 0 0 1px "+BT.line,animation:eventFlash&&eventFlash.id==="quake"?"quakeShake .55s ease-in-out":"none"}}>
+        <div onMouseLeave={()=>setHover(null)} className="petri-board-cells" style={{width:"100%",aspectRatio:`${BW}/${N}`,display:"grid",gridTemplateColumns:`repeat(${BW},1fr)`,gridTemplateRows:`repeat(${N},1fr)`,gap:1,background:BT.grid,padding:1,borderRadius:10,boxShadow:"inset 0 0 0 1px "+BT.line,animation:eventFlash&&eventFlash.id==="quake"?"quakeShake .55s ease-in-out":"none"}}>
           {board.map((row,r)=>row.map((v,c)=>{const k=r+","+c;let style={background:BT.cell};let inner=null;
             if(v===-2){style={background:BT.bg};
               if(BW>N&&c===(BW-1)/2)style={background:BT.grid,backgroundImage:`repeating-linear-gradient(0deg, ${BT.wallH} 0 2px, transparent 2px 7px)`,opacity:.85};} // twin dishes: the seam reads as a deliberate channel
             else if(v===-1)style={background:BT.wall,backgroundImage:`repeating-linear-gradient(45deg,${BT.wall} 0 3px,${BT.wallH} 3px 6px)`,boxShadow:`inset 0 0 0 1px ${BT.wallH}`};
+            else if(v===-3){const ff=floods.find(f=>f.cells.some(([a,b])=>a===r&&b===c));const tl=ff?ff.turnsLeft:3;style={background:"#274d5e",backgroundImage:"linear-gradient(135deg,#356b80 0%,#22434f 100%)",boxShadow:"inset 0 0 0 1px #4a8ba3"};inner=<span style={{color:"#cdeaf4",fontSize:"0.82em",fontWeight:700,opacity:tl>=2?.95:.55}}>{tl>=3?"✕":tl===2?"╲":"·"}</span>;} // Okavango floodwater, ticking down
+            else if(v===-4){const cc=caravan?colorOf(caravan.seat):T.accent;style={background:shade(cc,-0.55),boxShadow:`inset 0 0 0 1px ${cc}`};inner=<span style={{color:cc,fontSize:"0.82em",fontWeight:700}}>★</span>;} // Silk Road caravan
             else if(v>0){style=pieceCellStyle(colorOf(v),pieceTex,BT.cell);const g=glyphOf(v);if(g)inner=<span style={{color:"#0007",fontSize:"0.7em",fontWeight:700}}>{g}</span>;}
             if(v===0&&specials.has(k)){const t=TILE[specials.get(k)];inner=<span style={{color:t.col,fontSize:"0.72em",fontWeight:700}}>{t.mk}</span>;}
             if(v===0&&infect.has(k)){style={background:BT.cell,backgroundImage:"radial-gradient(circle,rgba(124,170,72,.32),rgba(124,170,72,.08))"};inner=<span style={{color:"#9cc46a",fontSize:"0.62em",fontWeight:700,opacity:.9}}>☣</span>;}
@@ -1232,8 +1341,9 @@ function App(){
             if(v===0&&startMarks[k]!==undefined&&isFirst(startMarks[k])&&!done.has(startMarks[k]))inner=<span style={{position:"absolute",inset:0,background:`linear-gradient(135deg,${colorOf(startMarks[k])} 0 40%,transparent 40%)`,opacity:.55}}/>;
             if(tentSet.has(k))style={background:tent&&tent.ok===false?"#9a4742":curCol,boxShadow:`inset 0 0 0 1px ${shade(tent&&tent.ok===false?"#9a4742":curCol,.5)}`,opacity:tent&&tent.ok===false?.75:1};
             else if(hoverSet.has(k))style={background:hoverSet.get(k)?curCol:"#9a4742",opacity:.55};
+            if(okaArmed&&floodPick.some(([a,b])=>a===r&&b===c)){style={background:"#2c5769",backgroundImage:"linear-gradient(135deg,#3f7f96,#2b5464)",boxShadow:`inset 0 0 0 2px ${curCol}`};inner=<span style={{color:"#cdeaf4",fontSize:"0.82em",fontWeight:700}}>✕</span>;} // Okavango cells you've chosen
             const ogArm=armed&&seats[turn-1]?.power==="overgrow"; // Overgrow: rival squares become drop targets too
-            const clickable=v!==-2&&(targeting||(sel&&(v===0||(ogArm&&v>0&&v!==turn)||ascentArmed)));
+            const clickable=v!==-2&&((v===-4&&caravan&&caravan.seat===turn&&curHuman())||(okaArmed?v===0:(caravanMode?v===0:(targeting||(sel&&(v===0||(ogArm&&v>0&&v!==turn)||ascentArmed))))));
             return <div key={k} onMouseEnter={()=>cellEnter(r,c)} onClick={clickable?()=>cellClick(r,c):undefined} style={{position:"relative",borderRadius:2,display:"flex",alignItems:"center",justifyContent:"center",cursor:clickable?"pointer":"default",fontSize:cellPx,...style}}>{inner}</div>;}))}
         </div>
         </div>
@@ -1245,6 +1355,36 @@ function App(){
         </div>}
         </div>
         <div style={{fontSize:mob?10.5:12.5,color:T.muted,fontFamily:T.mono,marginTop:mob?3:9,minHeight:mob?13:18,lineHeight:1.2}}>{guide()}{!mob&&zoom===1&&N>22?" · Pinch to zoom in for tight spots.":""}</div>
+        {/* Mobile control deck, inline right under the board: D-pad nudges the piece,
+            the cluster spins/flips/places, abilities open a sheet. Compact by design. */}
+        {mob&&(()=>{const arrow={flex:"1 1 0",height:38,borderRadius:8,border:`1px solid ${T.line}`,background:T.cell,color:T.ink,fontSize:19,fontFamily:T.mono,padding:0,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"};
+          const dis={opacity:.3};const legal=tent&&tent.ok!==false;
+          return <div style={{marginTop:8,background:T.panel,border:`1px solid ${T.line}`,borderRadius:10,padding:8,display:"flex",flexDirection:"column",gap:6}}>
+            {targeting||okaArmed||caravanMode?
+              <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                <div style={{flex:"1 1 0",fontFamily:T.mono,fontSize:12,color:T.accent}}>◈ {okaArmed?`Tap 5 squares to flood (${floodPick.length}/5)`:caravanMode?"Tap a far-off open square":"Tap the board to choose a target"}</div>
+                <button onClick={()=>{setTargeting(null);if(okaArmed){setOkaArmed(false);setFloodPick([]);}if(caravanMode)setCaravanMode(false);}} style={{...miniBtn,padding:"9px 18px",fontSize:14,color:T.accent}}>✕ Cancel</button>
+              </div>
+            :<>
+              {/* arrows + orient on one compact row */}
+              <div style={{display:"flex",gap:5}}>
+                <button onClick={()=>nudge(0,-1)} disabled={!tent} style={{...arrow,...(tent?{}:dis)}}>◀</button>
+                <button onClick={()=>nudge(-1,0)} disabled={!tent} style={{...arrow,...(tent?{}:dis)}}>▲</button>
+                <button onClick={()=>nudge(1,0)} disabled={!tent} style={{...arrow,...(tent?{}:dis)}}>▼</button>
+                <button onClick={()=>nudge(0,1)} disabled={!tent} style={{...arrow,...(tent?{}:dis)}}>▶</button>
+                <button onClick={()=>{doRot();vib(8);}} disabled={!sel} style={{...miniBtn,flex:"1 1 0",padding:"8px 4px",fontSize:12.5,opacity:sel?1:.4}}>⟳ Spin</button>
+                <button onClick={()=>{doFlip();vib(8);}} disabled={!sel} style={{...miniBtn,flex:"1 1 0",padding:"8px 4px",fontSize:12.5,opacity:sel?1:.4}}>⇋ Flip</button>
+              </div>
+              {/* place + undo + ability */}
+              <div style={{display:"flex",gap:5}}>
+                <button onClick={submit} disabled={!legal} style={{...miniBtn,flex:"1 1 0",padding:"11px 8px",fontSize:14,fontWeight:700,opacity:legal?1:.4,borderColor:legal?curCol:T.line,color:legal?curCol:T.muted,background:legal?shade(curCol,-0.72):THEME.panel}}>
+                  {sel?(legal?"✓ Place piece":"✕ Illegal spot, nudge it"):"Pick a piece below ↓"}</button>
+                <button onClick={()=>tent?setTent(null):undoPower()} disabled={!tent&&!pundo} style={{...miniBtn,flex:"0 0 auto",padding:"11px 13px",fontSize:14,opacity:(tent||pundo)?1:.4}}>↺</button>
+                {hasSheet&&(()=>{const armedAbility=armed||carnArmed||minerArmed||ascentArmed||lcArmed||okaArmed||caravanMode||!!ruil||bazaarPick;
+                  return <button onClick={()=>setMobSheet(true)} style={{...miniBtn,flex:"0 0 auto",padding:"11px 12px",fontSize:12.5,fontWeight:600,borderColor:T.accent,color:armedAbility?"#0c0e12":T.accent,background:armedAbility?T.accent:shade(T.accent,-0.74)}}>Ability</button>;})()}
+              </div>
+            </>}
+          </div>;})()}
       </div>
       <div style={{flex:"1 1 300px",maxWidth:mob?"none":430,width:mob?"100%":undefined}}>
         {!mob&&<div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:10}}>
@@ -1260,16 +1400,16 @@ function App(){
         {oTraits&&!mob&&<div style={{...card,padding:"8px 12px",marginBottom:10}}>
           <span style={{fontFamily:T.mono,fontSize:10.5,color:colorOf(cur)}}>✦ {CIVS[civOf(cur)].name.toUpperCase()}</span> <span style={{fontSize:11.5,color:T.ink}}>{TRAIT[civOf(cur)][0]}</span> <span style={{fontSize:11,color:T.muted}}>,  {TRAIT[civOf(cur)][1]}</span></div>}
         <div style={{...card,padding:mob?"10px 10px 6px":12,opacity:curHuman()?1:.5}}>
-          <div style={{fontFamily:T.mono,fontSize:11,color:T.muted,letterSpacing:1.5,marginBottom:mob?5:9,display:"flex",justifyContent:"space-between"}}><span>{CIVS[civOf(cur)].name.toUpperCase()}, {curHuman()?"YOUR PIECES":scheme}</span>{mob&&<span style={{letterSpacing:0,fontSize:9.5}}>swipe →</span>}</div>
+          <div style={{fontFamily:T.mono,fontSize:11,color:T.muted,letterSpacing:1.5,marginBottom:mob?5:9,display:"flex",justifyContent:"space-between"}}><span>{CIVS[civOf(cur)].name.toUpperCase()}, {curHuman()?"YOUR PIECES":scheme}</span></div>
           {/* Mobile: one swipeable row (big pieces first) so the board stays on
               screen while you shop for a shape. Desktop keeps the wrap grid. */}
-          <div className={mob?"petri-noscroll":""} style={mob?{display:"flex",flexWrap:"nowrap",gap:9,overflowX:"auto",WebkitOverflowScrolling:"touch",paddingBottom:8,alignItems:"center"}:{display:"flex",flexWrap:"wrap",gap:7}}>
-            {(mob?[...PIECE_IDS].sort((a,b)=>PSIZE[b]-PSIZE[a]):PIECE_IDS).map(id=>{const u=used[cur]?.[id]||0;const gone=u>=copies;const left=copies-u;const p=PICTURE[id];const isSel=selId===id;const px=mob?11:8;
+          <div style={mob?{display:"flex",flexWrap:"wrap",gap:5,justifyContent:"center"}:{display:"flex",flexWrap:"wrap",gap:7}}>
+            {(mob?[...PIECE_IDS].sort((a,b)=>PSIZE[b]-PSIZE[a]):PIECE_IDS).map(id=>{const u=used[cur]?.[id]||0;const gone=u>=copies;const left=copies-u;const p=PICTURE[id];const isSel=selId===id;const px=mob?9:8;
               const tradeable=bazaarPick&&u>0; // Bazaar: played pieces light up as reclaim targets
               const offerable=ruil&&ruil.give==null&&!gone; // Oranje: unused pieces are offerable
               const isOffer=ruil&&ruil.give===id;
               const hot=tradeable||offerable||isOffer;
-              return(<div key={id} onClick={()=>ruil?(offerable&&ruilOffer(id)):bazaarPick?(tradeable&&doBazaar(id)):(!gone&&pickPiece(id))} title={id} style={{position:"relative",padding:mob?8:5,borderRadius:7,cursor:(ruil?offerable:bazaarPick?tradeable:!gone&&curHuman())?"pointer":"default",background:isSel||isOffer?shade(curCol,-0.6):T.cell,border:`1px solid ${hot?curCol:isSel?curCol:T.line}`,opacity:gone?((bazaarPick||ruil)?.7:.14):(bazaarPick&&!tradeable)||(ruil&&!offerable&&!isOffer)?.35:1,...(hot?{boxShadow:`0 0 0 1px ${curCol}`}:{}),...(mob?{flex:"0 0 auto",minWidth:44,minHeight:44,display:"flex",alignItems:"center",justifyContent:"center"}:{})}}>
+              return(<div key={id} onClick={()=>ruil?(offerable&&ruilOffer(id)):bazaarPick?(tradeable&&doBazaar(id)):(!gone&&pickPiece(id))} title={id} style={{position:"relative",padding:mob?4:5,borderRadius:6,cursor:(ruil?offerable:bazaarPick?tradeable:!gone&&curHuman())?"pointer":"default",background:isSel||isOffer?shade(curCol,-0.6):T.cell,border:`1px solid ${hot?curCol:isSel?curCol:T.line}`,opacity:gone?((bazaarPick||ruil)?.7:.14):(bazaarPick&&!tradeable)||(ruil&&!offerable&&!isOffer)?.35:1,...(hot?{boxShadow:`0 0 0 1px ${curCol}`}:{}),...(mob?{flex:"0 0 auto",display:"flex",alignItems:"center",justifyContent:"center"}:{})}}>
                 {copies>1&&left>0&&<span style={{position:"absolute",top:-5,right:-4,fontFamily:T.mono,fontSize:9,background:T.bg,border:`1px solid ${T.line}`,borderRadius:6,padding:"0 3px",color:T.muted}}>×{left}</span>}
                 <div style={{display:"grid",gridTemplateColumns:`repeat(${p.c},${px}px)`,gridTemplateRows:`repeat(${p.r},${px}px)`,gap:1}}>{p.on.map((o,i)=><div key={i} style={{width:px,height:px,borderRadius:1,background:o?curCol:"transparent"}}/>)}</div></div>);})}
           </div>
@@ -1277,41 +1417,6 @@ function App(){
         {mob&&<div style={{height:6}}/>}
       </div>
     </div>
-    {/* Mobile control deck: a thumb D-pad nudges the auto-dropped piece, the
-        cluster on the right rotates/flips/places, and abilities live in a sheet. */}
-    {mob&&(()=>{const dpad={height:42,borderRadius:9,border:`1px solid ${T.line}`,background:T.cell,color:T.ink,fontSize:22,fontFamily:T.mono,padding:0,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"};
-      const dis={opacity:.3};const legal=tent&&tent.ok!==false;
-      const prev=(()=>{if(!sel)return <span style={{color:T.muted,fontSize:8,fontFamily:T.mono}}>—</span>;const o=sel;const mC=Math.max(...o.map(c=>c[1]))+1,mR=Math.max(...o.map(c=>c[0]))+1;const on=new Set(o.map(([a,b])=>a+","+b));const pv=Math.max(2,Math.floor(22/Math.max(mR,mC)));
-        return <div style={{display:"grid",gridTemplateColumns:`repeat(${mC},${pv}px)`,gridTemplateRows:`repeat(${mR},${pv}px)`,gap:1}}>{Array.from({length:mR*mC},(_,i)=><div key={i} style={{width:pv,height:pv,borderRadius:1,background:on.has(Math.floor(i/mC)+","+(i%mC))?(legal?curCol:"#b0544e"):"transparent"}}/>)}</div>;})();
-      return <div style={{position:"fixed",left:0,right:0,bottom:0,zIndex:40,background:T.panel,borderTop:`1px solid ${T.line}`,padding:"8px 10px calc(8px + env(safe-area-inset-bottom))",display:"flex",gap:10,alignItems:"stretch"}}>
-        {targeting?<>
-          <div style={{flex:"1 1 0",display:"flex",alignItems:"center",fontFamily:T.mono,fontSize:12,color:T.accent}}>◈ Tap the board to choose a target</div>
-          <button onClick={()=>setTargeting(null)} style={{...miniBtn,padding:"0 20px",fontSize:14,color:T.accent}}>✕ Cancel</button>
-        </>:<>
-          {/* D-pad */}
-          <div style={{display:"grid",gridTemplateColumns:"46px 46px 46px",gridTemplateRows:"42px 42px 42px",gap:4,flex:"0 0 auto"}}>
-            <span/><button onClick={()=>nudge(-1,0)} disabled={!tent} style={{...dpad,...(tent?{}:dis)}}>▲</button><span/>
-            <button onClick={()=>nudge(0,-1)} disabled={!tent} style={{...dpad,...(tent?{}:dis)}}>◀</button>
-            <div style={{display:"flex",alignItems:"center",justifyContent:"center",borderRadius:8,border:`1px solid ${legal?curCol:tent?"#b0544e":T.line}`,background:T.bg}}>{prev}</div>
-            <button onClick={()=>nudge(0,1)} disabled={!tent} style={{...dpad,...(tent?{}:dis)}}>▶</button>
-            <span/><button onClick={()=>nudge(1,0)} disabled={!tent} style={{...dpad,...(tent?{}:dis)}}>▼</button><span/>
-          </div>
-          {/* right cluster */}
-          <div style={{flex:"1 1 0",display:"flex",flexDirection:"column",gap:6,minWidth:0}}>
-            <div style={{display:"flex",gap:6}}>
-              <button onClick={()=>{doRot();vib(8);}} disabled={!sel} style={{...miniBtn,flex:"1 1 0",padding:"9px 4px",fontSize:13,opacity:sel?1:.4}}>⟳ Spin</button>
-              <button onClick={()=>{doFlip();vib(8);}} disabled={!sel} style={{...miniBtn,flex:"1 1 0",padding:"9px 4px",fontSize:13,opacity:sel?1:.4}}>⇋ Flip</button>
-              {hasSheet&&(()=>{const armedAbility=armed||carnArmed||minerArmed||ascentArmed||!!ruil||bazaarPick;
-                return <button onClick={()=>setMobSheet(true)} style={{...miniBtn,flex:"1 1 0",padding:"9px 4px",fontSize:12.5,fontWeight:600,borderColor:T.accent,color:armedAbility?"#0c0e12":T.accent,background:armedAbility?T.accent:shade(T.accent,-0.74)}}>Ability</button>;})()}
-            </div>
-            <div style={{display:"flex",gap:6}}>
-              <button onClick={submit} disabled={!legal} style={{...miniBtn,flex:"1 1 0",padding:"13px 8px",fontSize:15,fontWeight:700,opacity:legal?1:.4,borderColor:legal?curCol:T.line,color:legal?curCol:T.muted,background:legal?shade(curCol,-0.72):THEME.panel}}>
-                {sel?(legal?"✓ Place piece":"✕ Illegal spot, nudge it"):"Pick a piece below ↓"}</button>
-              <button onClick={()=>tent?setTent(null):undoPower()} disabled={!tent&&!pundo} style={{...miniBtn,flex:"0 0 auto",padding:"13px 14px",fontSize:15,opacity:(tent||pundo)?1:.4}}>↺</button>
-            </div>
-          </div>
-        </>}
-      </div>;})()}
     {/* Abilities sheet: powers + traits + give up, off the main screen. */}
     {mob&&mobSheet&&<div style={{...overlay,alignItems:"flex-end",padding:0}} onClick={()=>setMobSheet(false)}>
       <div onClick={e=>e.stopPropagation()} style={{width:"100%",background:T.panel,borderTop:`1px solid ${T.line}`,borderRadius:"16px 16px 0 0",padding:"14px 14px calc(18px + env(safe-area-inset-bottom))",maxHeight:"78vh",overflowY:"auto"}}>
@@ -1323,8 +1428,7 @@ function App(){
         <button onClick={()=>{setMobSheet(false);setAskConcede(true);}} disabled={!curHuman()||over} style={{...miniBtn,width:"100%",marginTop:4,color:"#c5a37a",borderColor:"#3a3324"}}>Give up</button>
       </div>
     </div>}
-    {mob&&<div style={{height:150}}/>}
-    {toast&&<div style={{...toastStyle,...(mob?{bottom:168,left:12,right:12,transform:"none",textAlign:"center"}:{})}}>{toast}</div>}
+    {toast&&<div style={{...toastStyle,...(mob?{bottom:20,left:12,right:12,transform:"none",textAlign:"center"}:{})}}>{toast}</div>}
     {settingsModal}
     {ruil&&ruil.give!=null&&<div style={overlay} onClick={()=>setRuil(null)}><div onClick={e=>e.stopPropagation()} style={{...card,padding:"20px 22px",maxWidth:460,width:"100%",maxHeight:"80vh",overflow:"auto"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}><b style={{fontFamily:T.display,fontSize:18}}>Oranje</b><button onClick={()=>setRuil(null)} style={ghostBtn}>cancel</button></div>
