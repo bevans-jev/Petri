@@ -75,7 +75,7 @@ const TRAIT = {
   guatemala:["Long Count","the Maya tracked time in vast turning cycles, so once per game the great cycle comes round and it places two pieces in a single turn"],
   colombia:["Second Harvest","Colombia's coffee slopes ripen twice a year, so it gets one extra power charge"],
   tonga:["Big Hits","Tonga's rugby giants hit hardest, so it scores +1 point for every 5-square piece it places"],
-  malta:["The Great Siege","Malta withstood the Great Siege unbroken, so the first time it is walled in with no legal move, it turns up to 3 of the rival squares besieging its colony into walls"],
+  malta:["The Great Siege","Malta withstood the Great Siege and raised Valletta from it, so once rivals press in around its colony it breaks up to 5 of those besieging squares and raises them as its own ramparts, which score for Malta"],
   dominican:["Merengue","the Dominican merengue never stops moving, so it scores 1 bonus point for every 4 pieces it places"],
   senegal:["Baobab","Senegal's baobab, the tree of life, spreads wide, so it scores 1 bonus point for every long, stretched piece it plays (4+ cells in a line)"],
   chile:["Miner","Chile's miners cut corner-to-corner through solid rock, so once per game one piece may link off the map's walls, not just its own color"],
@@ -459,6 +459,13 @@ function floodClaim(board,cells,seat,cap){const [H,W]=dimsOf(board);const seen=n
 function arrivesAtCaravan(cells,car){for(const [r,c] of cells)for(const [dr,dc] of [...ORTH,...DIAG])if(r+dr===car.r&&c+dc===car.c)return true;return false;}
 // Chebyshev distance from cell (r,c) to a seat's nearest square (how far the caravan travels).
 function caravanDist(board,seat,r,c){const [H,W]=dimsOf(board);let best=99;for(let a=0;a<H;a++)for(let b=0;b<W;b++)if(board[a][b]===seat){const d=Math.max(Math.abs(a-r),Math.abs(b-c));if(d<best)best=d;}return best===99?0:best;}
+// Malta's Great Siege: rival squares pressing directly on a seat's colony (edge
+// or corner). These are the besiegers Malta may wall off.
+function besiegersOf(board,seat,mates){const [H,W]=dimsOf(board),out=[],seen=new Set();mates=mates||new Set();
+  for(let r=0;r<H;r++)for(let c=0;c<W;c++){if(board[r][c]!==seat)continue;
+    for(const [dr,dc] of [...ORTH,...DIAG]){const a=r+dr,b=c+dc,k=a+","+b;
+      if(inB(a,b,H,W)&&board[a][b]>0&&board[a][b]!==seat&&!mates.has(board[a][b])&&!seen.has(k)){seen.add(k);out.push([a,b]);}}}
+  return out;}
 // Seats whose civ carries a tile-related trait, for special-tile resolution.
 function traitSets(seats,count){const shield=new Set(),burst=new Set(),bastion=new Set();
   for(let s=1;s<=count;s++){const cv=seats[s-1]&&seats[s-1].civ;if(cv==="botswana")shield.add(s);if(cv==="kyrgyzstan")burst.add(s);}
@@ -496,14 +503,12 @@ function buildMap(mId){const d=(MAPS[mId]||MAPS.open).build();const H=d.rows||d.
 const THEME={bg:"var(--bg)",panel:"var(--panel)",line:"var(--line)",grid:"var(--grid)",cell:"var(--cell)",wall:"var(--wall)",wallH:"var(--wallH)",ink:"var(--ink)",muted:"var(--muted)",accent:"var(--accent)",display:"'Archivo',system-ui,sans-serif",mono:"'Space Mono',ui-monospace,monospace"};
 const THEMES={
   dark:{name:"Dark",bg:"#0c0e12",panel:"#15181f",line:"#2a2f3a",grid:"#1a1e26",cell:"#12151b",wall:"#49515f",wallH:"#727c8c",ink:"#e8ebf0",muted:"#878f9c",accent:"#c7cdd6",btnInk:"#0c0e12"},
-  light:{name:"Light",bg:"#ece3cf",panel:"#f4eede",line:"#d4c7a8",grid:"#d6c9ad",cell:"#e3d8bd",wall:"#b39a72",wallH:"#9c8056",ink:"#37322a",muted:"#776c57",accent:"#8a6240",btnInk:"#f6f1e6"},
   dusk:{name:"Dusk",bg:"#14101e",panel:"#1d1830",line:"#322a4a",grid:"#201a33",cell:"#18132a",wall:"#4a3f6b",wallH:"#6e5f9c",ink:"#ece8f5",muted:"#9a8fb0",accent:"#b89cdb",btnInk:"#14101e"},
   midnight:{name:"Midnight",bg:"#0a0d18",panel:"#121829",line:"#232c45",grid:"#131a2e",cell:"#0f1422",wall:"#3a4a6b",wallH:"#5e739c",ink:"#e6ebf5",muted:"#8794ad",accent:"#8fb0e0",btnInk:"#0a0d18"},
-  moss:{name:"Moss",bg:"#0b110c",panel:"#141d15",line:"#28342a",grid:"#18211a",cell:"#11160f",wall:"#3f5340",wallH:"#66805f",ink:"#e9f0e6",muted:"#8aa088",accent:"#9cc89a",btnInk:"#0b110c"},
-  ember:{name:"Ember",bg:"#120d0b",panel:"#1d1612",line:"#352720",grid:"#221a16",cell:"#16100d",wall:"#5e463a",wallH:"#8a6a55",ink:"#f0e8e3",muted:"#b09a8a",accent:"#d99a6a",btnInk:"#120d0b"},
+  moss:{name:"Moss",bg:"#0d1a10",panel:"#16291a",line:"#2c4a31",grid:"#173020",cell:"#122417",wall:"#436b48",wallH:"#6f9c6a",ink:"#e9f5e6",muted:"#8fb389",accent:"#8fd88c",btnInk:"#0d1a10"},
   rose:{name:"Rose",bg:"#160d11",panel:"#211520",line:"#3a2531",grid:"#241620",cell:"#190f15",wall:"#5e3a4a",wallH:"#8a5a72",ink:"#f3e6ec",muted:"#b08a9a",accent:"#db8aa8",btnInk:"#160d11"},
 };
-const PIECE_TEX={flat:"Flat",cells:"Cells",outline:"Outline",foil:"Foil",colony:"Colony"};
+const PIECE_TEX={flat:"Flat",cells:"Cells",outline:"Outline",foil:"Foil",colony:"Colony",weave:"Weave",seamless:"Seamless"};
 // Lock all rules/content/theme data: these are read-only at runtime, so freezing
 // blocks any accidental in-place mutation from corrupting game state.
 [GLYPHS,CIVS,TRAIT,POWERS,CPU_BRAINS,TILE,MAPS,PIECES,EVENTS,EVT_COLOR,THEMES,THEME,PIECE_TEX,SCHEMES,ORTH,DIAG].forEach(o=>Object.freeze(o));
@@ -512,6 +517,12 @@ function pieceCellStyle(color,tex,cellBg){
   if(tex==="outline")return {background:cellBg,boxShadow:`inset 0 0 0 2px ${color}`};
   if(tex==="foil")return {background:color,backgroundImage:`linear-gradient(125deg, rgba(255,255,255,.55) 0%, rgba(255,255,255,0) 34%), conic-gradient(from 205deg at 50% 42%, rgba(255,74,140,.30), rgba(255,208,64,.30), rgba(70,230,190,.30), rgba(120,120,255,.30), rgba(255,74,140,.30))`,boxShadow:`inset 0 0 3px rgba(255,255,255,.25)`};
   if(tex==="colony")return {background:cellBg,backgroundImage:`radial-gradient(circle at 50% 47%, ${color} 0 44%, ${color}cc 55%, ${color}55 67%, ${color}00 76%)`};
+  // Seamless tiling: a woven lattice locked to the page grid, so the weave runs
+  // unbroken across every touching square instead of restarting in each cell.
+  if(tex==="weave")return {background:color,backgroundImage:`repeating-linear-gradient(45deg, rgba(255,255,255,.16) 0 2px, rgba(255,255,255,0) 2px 6px), repeating-linear-gradient(-45deg, rgba(0,0,0,.20) 0 2px, rgba(0,0,0,0) 2px 6px)`,backgroundAttachment:"fixed",boxShadow:"inset 0 0 0 1px rgba(0,0,0,.14)"};
+  // Seamless: the colour bleeds a hair past each cell to fill the grid gaps, so a
+  // placed piece reads as one unbroken shape instead of a row of little squares.
+  if(tex==="seamless")return {background:color,boxShadow:`0 0 0 1px ${color}`,borderRadius:0};
   return {background:color};}
 const card={background:"var(--panel)",border:"1px solid var(--line)",borderRadius:10,padding:14};
 const pill={fontFamily:THEME.mono,fontSize:12,padding:"7px 13px",borderRadius:8,border:"1px solid var(--line)",background:"transparent",color:"var(--muted)",cursor:"pointer"};
@@ -527,6 +538,15 @@ const overlay={position:"fixed",inset:0,background:"rgba(6,8,11,.78)",display:"f
 // Team identity colors: soft pastels, kept clear of the saturated nation palette,
 // so in team mode a whole team reads as one hue on the board at a glance.
 const TEAM_PASTEL={1:"#8FB6E8",2:"#EDA9C6",3:"#C3A6E6"};
+// Accessible palette. Nation colours are picked for flavour, so under colour
+// blindness several of them collide. Only four seats ever play at once, so this
+// mode assigns colours BY SEAT from a set chosen by simulating deuteranopia,
+// protanopia and tritanopia and maximising the worst-case separation (these hues
+// also differ in lightness, so they survive greyscale), and it forces the
+// per-seat glyphs on so shape backs up colour.
+const CB_SEAT=["#0F4C81","#E66100","#5DD9C1","#F5E663"];   // deep blue, orange, aqua, pale yellow
+const CB_TEAM={1:"#0F4C81",2:"#E66100",3:"#5DD9C1"};
+const CB_FLOOD="#7BAFD4",CB_CARAVAN="#F5E663";
 const CARAVAN_MIN=6; // Silk Road: a caravan must be dropped at least this far (Chebyshev) from all your pieces
 
 // ===== 9. SHARED UI COMPONENTS =============================================
@@ -622,6 +642,7 @@ function App(){
   const [opts,setOpts]=useState({powers:false,traits:false,events:false }); // advanced layers toggled at setup
   const [askConcede,setAskConcede]=useState(false);const [showInfo,setShowInfo]=useState(false);
   const [boardTheme,setBoardTheme]=useState("dark");const [pieceTex,setPieceTex]=useState("flat");const [showSettings,setShowSettings]=useState(false);const [mobSheet,setMobSheet]=useState(false);
+  const [cbMode,setCbMode]=useState(false); // accessible palette: colour-blind-safe seat colours + always-on glyphs
   // Track viewport size; `mob` flips the game screen into the single-column
   // touch layout (big buttons, on-screen rotate/flip, condensed panels).
   // Uses the smaller of width/height so a phone held sideways still gets the
@@ -685,10 +706,15 @@ function App(){
   const matesOf=useCallback(s=>{const t=teamOf(s);if(!t)return new Set();const m=new Set();for(let i=1;i<=count;i++)if(i!==s&&teamOf(i)===t)m.add(i);return m;},[teamOf,count]);
   const variantOf=useCallback(s=>{const c=civOf(s);let v=0;for(let i=1;i<s;i++)if(seats[i-1].civ===c)v++;return v;},[seats,civOf]);
   const colorOf=useCallback(s=>{const t=teamOf(s);
+    if(cbMode){ // accessible: distinct-by-seat colours, teammates share their team hue
+      if(t){const base=CB_TEAM[t]||CB_SEAT[(s-1)%4];let idx=0;for(let i=1;i<s;i++)if(teamOf(i)===t)idx++;
+        return idx?shade(base,idx===1?-0.3:idx===2?0.26:-0.48):base;}
+      return CB_SEAT[(s-1)%4];}
     if(t){const base=TEAM_PASTEL[t]||CIVS[civOf(s)].color;let idx=0;for(let i=1;i<s;i++)if(teamOf(i)===t)idx++;
       return idx?shade(base,idx===1?-0.24:idx===2?0.22:-0.42):base;} // teammates: same pastel, slightly shaded apart
-    const b=CIVS[civOf(s)].color,v=variantOf(s);return v?shade(b,v===1?-0.32:v===2?0.32:-0.55):b;},[civOf,variantOf,teamOf]);
-  const glyphOf=useCallback(s=>{const c=civOf(s);let dup=false;for(let i=1;i<=count;i++)if(i!==s&&seats[i-1].civ===c)dup=true;return dup?GLYPHS[(s-1)%4]:null;},[seats,count,civOf]);
+    const b=CIVS[civOf(s)].color,v=variantOf(s);return v?shade(b,v===1?-0.32:v===2?0.32:-0.55):b;},[civOf,variantOf,teamOf,cbMode]);
+  const glyphOf=useCallback(s=>{if(cbMode)return GLYPHS[(s-1)%4]; // accessible mode: every seat always carries its shape
+    const c=civOf(s);let dup=false;for(let i=1;i<=count;i++)if(i!==s&&seats[i-1].civ===c)dup=true;return dup?GLYPHS[(s-1)%4]:null;},[seats,count,civOf,cbMode]);
   const isFirst=useCallback(s=>!used[s]||Object.keys(used[s]).length===0,[used]);
   const curHuman=()=>seats[turn-1]?.kind==="human";
   const oPowers=opts.powers,oTraits=opts.traits;
@@ -709,6 +735,9 @@ function App(){
   const [floods,setFloods]=useState([]);        // active Okavango floods: [{seat, cells:[[r,c],...], turnsLeft}]
   const [caravanMode,setCaravanMode]=useState(false); // Kyrgyzstan: tapping to drop a distant caravan
   const [caravan,setCaravan]=useState(null);    // active caravan: {seat, r, c, dist}
+  const [siegeMode,setSiegeMode]=useState(false); // Malta: tapping besiegers to wall them
+  const [siegePick,setSiegePick]=useState([]);    // besieger squares tapped so far
+  const [forts,setForts]=useState([]);            // Malta's ramparts: [{seat, cells}] — walls that score for their builder
   const [ruil,setRuil]=useState(null); // Netherlands: {give} while choosing a rival piece to take
   const [reserved,setReserved]=useState(null);
   // Miner is now a once-per-game armable (like Carnival): mineAvail means the
@@ -734,7 +763,7 @@ function App(){
       const pr=sr+dr*d,pc=sc+dc*d;let done2=false;for(let rad=0;rad<6&&!done2;rad++)for(let a=pr-rad;a<=pr+rad&&!done2;a++)for(let e=pc-rad;e<=pc+rad&&!done2;e++)if(a>=0&&a<BH&&e>=0&&e<BW&&b[a][e]===0){b[a][e]=s;done2=true;}}
     setBoard(b);setSpecials(sp);setStarts(st);setCopies(cp);setUsed(u);setLast(l);setCharges(ch);setDone(new Set());
     setScheme(SCHEMES[0]);setPundo(null);setOverHidden(false);
-    setTraitUsed({});setCarnArmed(false);setBazaarPick(false);setMinerArmed(false);setAscentArmed(false);setLcArmed(false);setOkaArmed(false);setFloodPick([]);setFloods([]);setCaravan(null);setCaravanMode(false);setRuil(null);setReserved(null);
+    setTraitUsed({});setCarnArmed(false);setBazaarPick(false);setMinerArmed(false);setAscentArmed(false);setLcArmed(false);setOkaArmed(false);setFloodPick([]);setFloods([]);setCaravan(null);setCaravanMode(false);setSiegeMode(false);setSiegePick([]);setForts([]);setRuil(null);setReserved(null);
     setInfect(new Set());setEventFlash(null);clearTimeout(bannerT.current);evtClock.current=evtDelay(count);evtTurns.current=0;
     setTurn(1);setStep(0);setAskConcede(false);setSel(null);setSelId(null);setHover(null);setTent(null);setArmed(false);setTargeting(null);setOver(false);setToast("");setMobSheet(false);busy.current=false;
     zoomRef.current=1;panRef.current={x:0,y:0};setZoom(1);setPan({x:0,y:0});setScreen("game");}
@@ -842,6 +871,13 @@ function App(){
     if(P.target==="empty"&&t.picks.some(([a,b])=>a===r&&b===c))return;const picks=[...t.picks,[r,c]];
     if(picks.length>=t.need)applyPower(t.id,picks);else setTargeting({...t,picks});}
   function cellClick(r,c){if(over)return;
+    if(siegeMode){ // Malta: tap rival squares pressing your colony to wall them off
+      if(siegePick.some(([a,b])=>a===r&&b===c)){setSiegePick(p=>p.filter(([a,b])=>!(a===r&&b===c)));return;}
+      const bes=besiegersOf(board,turn,matesOf(turn));
+      if(!bes.some(([a,b])=>a===r&&b===c)){flash("Only rival squares pressing your colony");return;}
+      const next=[...siegePick,[r,c]];
+      if(next.length>=SIEGE_MAX||next.length>=bes.length){commitSiege(next);}else{setSiegePick(next);flash(`Great Siege, ${next.length}/${SIEGE_MAX} chosen (tap Done to stop early).`);}
+      return;}
     if(okaArmed){ // Okavango: tap open squares touching your colony to flood
       const s=turn,key=r+","+c;
       if(floodPick.some(([a,b])=>a===r&&b===c)){setFloodPick(p=>p.filter(([a,b])=>!(a===r&&b===c)));return;} // tap again to deselect
@@ -912,7 +948,7 @@ function App(){
       const uu={...(used[s]||{}),[id]:((used[s]?.[id]||0)+1)};
       if(anyMove(nb,uu,s,false,startOf(s),copies,{blk:blockedFor(s),mates:matesOf(s)})){flash("Long Count! The cycle turns, place one more piece.");busy.current=false;return;}}
     advance(s);setTimeout(()=>{busy.current=false;},80);}
-  function concede(){const s=turn;const nd=new Set(done);nd.add(s);setDone(nd);setSel(null);setSelId(null);setTent(null);setTargeting(null);setArmed(false);setCarnArmed(false);setBazaarPick(false);setMinerArmed(false);setAscentArmed(false);setLcArmed(false);setOkaArmed(false);setFloodPick([]);setCaravanMode(false);setRuil(null);flash(`${CIVS[civOf(s)].name} bends the knee.`);advance(s,nd);}
+  function concede(){const s=turn;const nd=new Set(done);nd.add(s);setDone(nd);setSel(null);setSelId(null);setTent(null);setTargeting(null);setArmed(false);setCarnArmed(false);setBazaarPick(false);setMinerArmed(false);setAscentArmed(false);setLcArmed(false);setOkaArmed(false);setFloodPick([]);setCaravanMode(false);setSiegeMode(false);setSiegePick([]);setRuil(null);flash(`${CIVS[civOf(s)].name} bends the knee.`);advance(s,nd);}
 
   function advance(from,doneSet){setTimeout(()=>{const L=live.current,n=L.count,dn=doneSet||L.done;let fired=false;
     if(oEvents&&!over){try{
@@ -926,7 +962,7 @@ function App(){
       const blk2=LL.reserved&&LL.reserved.seat!==cand&&!dn.has(LL.reserved.seat)?new Set([LL.reserved.k]):null;
       if(anyMove(LL.board,LL.used[cand]||{},cand,LL.isFirst(cand),LL.startOf(cand),LL.copies,{mine:mineAvail(cand),blk:blk2})){
         if(LL.reserved&&(LL.reserved.seat===cand||dn.has(LL.reserved.seat)))setReserved(null); // flag expires when it's your turn again (or you're out)
-        setTurn(cand);setStep(x=>x+1);setArmed(false);setCarnArmed(false);setBazaarPick(false);setMinerArmed(false);setAscentArmed(false);setLcArmed(false);setOkaArmed(false);setFloodPick([]);setCaravanMode(false);setRuil(null);setTargeting(null);return;}}
+        setTurn(cand);setStep(x=>x+1);setArmed(false);setCarnArmed(false);setBazaarPick(false);setMinerArmed(false);setAscentArmed(false);setLcArmed(false);setOkaArmed(false);setFloodPick([]);setCaravanMode(false);setSiegeMode(false);setSiegePick([]);setRuil(null);setTargeting(null);return;}}
       setOverSeed(Math.random());setOver(true);};
     if(fired)setTimeout(pick,1050);else pick();},0);}
 
@@ -1045,24 +1081,14 @@ function App(){
       if(receded)setBoard(nb);setFloods(kept);eb=receded?nb:eb;
       if(receded)flash(`${CIVS[civOf(s)].name}'s floodwaters recede, the delta returns to open ground.`);}
     if(!anyMove(eb,used[s]||{},s,isFirst(s),startOf(s),copies,{mine:mineAvail(s),blk:blockedFor(s),mates:matesOf(s)})){
-      // Malta's Great Siege: trapped with no move, it walls off up to 3 of the rival squares besieging its colony.
-      let siege=0;
-      if(oTraits&&civOf(s)==="malta"&&!traitUsed[s]){const nb=cloneB(live.current.board),H=nb.length,W=nb[0].length,mt=matesOf(s);
-        const edge=[],corner=[],seen=new Set();
-        for(let r=0;r<H;r++)for(let c=0;c<W;c++){if(nb[r][c]!==s)continue;
-          for(const [dr,dc] of ORTH){const a=r+dr,b=c+dc,k=a+","+b;if(inB(a,b,H,W)&&nb[a][b]>0&&nb[a][b]!==s&&!mt.has(nb[a][b])&&!seen.has(k)){seen.add(k);edge.push([a,b]);}}
-          for(const [dr,dc] of DIAG){const a=r+dr,b=c+dc,k=a+","+b;if(inB(a,b,H,W)&&nb[a][b]>0&&nb[a][b]!==s&&!mt.has(nb[a][b])&&!seen.has(k)){seen.add(k);corner.push([a,b]);}}}
-        const pick=[...edge,...corner].slice(0,3); // edge-adjacent besiegers first
-        if(pick.length){for(const [a,b] of pick)nb[a][b]=-1;setBoard(nb);siege=pick.length;}
-        setTraitUsed(t=>({...t,[s]:true}));}
       const nd=new Set(done);nd.add(s);setDone(nd);
-      flash(siege?`${CIVS[civOf(s)].name} declares the Great Siege, walling off ${siege} besieging square${siege>1?"s":""}!`:`${CIVS[civOf(s)].name} is hemmed in, out of the fight.`);
+      flash(`${CIVS[civOf(s)].name} is hemmed in, out of the fight.`);
       advance(s,nd);return;}
     if(seats[s-1].kind==="cpu"){setScheme(SCHEMES[Math.floor(Math.random()*SCHEMES.length)]);const t=setTimeout(()=>cpuTurn(s),520);return()=>clearTimeout(t);}
   },[turn,step,screen,over]); // eslint-disable-line
   useEffect(()=>{if(over)vib([20,40,20,40,60]);},[over]); // eslint-disable-line
 
-  const scoreOf=s=>{let sq=0;for(let r=0;r<N;r++)for(let c=0;c<BW;c++)if(board[r][c]===s)sq++;if(caravan&&caravan.seat===s)sq++;for(const f of floods)if(f.seat===s)sq+=f.cells.length;const u=used[s]||{};const tot=Object.values(u).reduce((a,b)=>a+b,0);const all=tot===PIECE_IDS.length*copies;let b=0;if(all){b+=15;if(last[s]==="mono")b+=5;}
+  const scoreOf=s=>{let sq=0;for(let r=0;r<N;r++)for(let c=0;c<BW;c++)if(board[r][c]===s)sq++;if(caravan&&caravan.seat===s)sq++;for(const f of floods)if(f.seat===s)sq+=f.cells.length;for(const f of forts)if(f.seat===s)sq+=f.cells.length;const u=used[s]||{};const tot=Object.values(u).reduce((a,b)=>a+b,0);const all=tot===PIECE_IDS.length*copies;let b=0;if(all){b+=15;if(last[s]==="mono")b+=5;}
     if(oTraits&&civOf(s)==="tonga"){let pent=0;for(const id of Object.keys(u))if(PSIZE[id]===5)pent+=u[id];b+=pent;}
     if(oTraits&&civOf(s)==="dominican")b+=Math.floor(tot/4);
     if(oTraits&&civOf(s)==="senegal"){let lng=0;for(const id of Object.keys(u))if(PLONG.has(id))lng+=u[id];b+=lng;}
@@ -1088,6 +1114,12 @@ function App(){
           return <button key={id} onClick={()=>setPieceTex(id)} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 12px",borderRadius:9,border:`1px solid ${on?T.accent:T.line}`,background:T.panel,cursor:"pointer"}}>
             <span style={{width:20,height:20,borderRadius:4,...demo}}/><span style={{fontFamily:T.mono,fontSize:11.5,color:on?T.ink:T.muted}}>{PIECE_TEX[id]}</span></button>;})}
       </div>
+      <div style={{fontFamily:T.mono,fontSize:10,color:T.muted,letterSpacing:1.5,margin:"16px 0 8px"}}>ACCESSIBILITY</div>
+      <button onClick={()=>setCbMode(v=>!v)} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderRadius:9,border:`1px solid ${cbMode?T.accent:T.line}`,background:T.panel,cursor:"pointer",width:"100%",textAlign:"left"}}>
+        <span style={{display:"flex",gap:3}}>{(cbMode?CB_SEAT:CIV_IDS.slice(0,4).map(i=>CIVS[i].color)).map((c,i)=><span key={i} style={{width:14,height:14,borderRadius:3,background:c,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,color:"#0009"}}>{cbMode?GLYPHS[i]:""}</span>)}</span>
+        <span style={{flex:1}}><span style={{fontFamily:T.mono,fontSize:11.5,color:cbMode?T.ink:T.muted}}>{cbMode?"✓ ":"  "}Colour-blind safe palette</span>
+        <div style={{fontSize:10.5,color:T.muted,marginTop:2}}>Distinct seat colours plus a shape on every piece.</div></span>
+      </button>
     </div></div>;
 
   function guide(){if(!curHuman())return`${CIVS[civOf(turn)].name} is making their move…`;
@@ -1101,6 +1133,7 @@ function App(){
     if(ascentArmed)return"Himalayan Ascent! Anchor edge-to-edge, then climb over walls and rivals.";
     if(lcArmed)return"Long Count! Place this piece, then you place one more.";
     if(okaArmed)return`Okavango, tap 5 open squares touching your colony (${floodPick.length}/5).`;
+    if(siegeMode)return`Great Siege, tap up to ${SIEGE_MAX} rival squares pressing your colony (${siegePick.length}/${SIEGE_MAX}).`;
     if(caravanMode)return`Silk Road, tap an open square at least ${CARAVAN_MIN} from all your pieces.`;
     if(sel)return mob?"Nudge it with the D-pad, spin or flip, then Place.":"Spin it with R, flip with F, then drop it on the board.";
     return"Choose a piece and start spreading."+(oPowers?" Your power's waiting on the right.":"");}
@@ -1125,6 +1158,18 @@ function App(){
   function commitFlood(picks){const s=turn;const nb=cloneB(live.current.board);for(const [r,c] of picks)nb[r][c]=-3;
     setBoard(nb);setFloods(f=>[...f,{seat:s,cells:picks,turnsLeft:3}]);setTraitUsed(t=>({...t,[s]:true}));setOkaArmed(false);setFloodPick([]);
     flash(`Okavango floods ${picks.length} squares (+${picks.length} while they hold), sealed for 3 turns.`);}
+  // Malta's Great Siege: with rivals pressing on its colony, break the siege and
+  // raise their positions into Malta's own ramparts (Valletta's famous walls).
+  const SIEGE_MIN=3,SIEGE_MAX=5; // it takes a real siege, not one stray neighbour
+  function toggleSiege(){if(traitUsed[turn]||!curHuman()||over)return;if(placed(turn)<1){flash("Place your first piece before using an ability.");return;}
+    if(siegeMode){setSiegeMode(false);setSiegePick([]);flash("Great Siege off");return;}
+    const bes=besiegersOf(board,turn,matesOf(turn));
+    if(bes.length<SIEGE_MIN){flash(`Not yet besieged, ${SIEGE_MIN} rival squares must press your colony (now ${bes.length}).`);return;}
+    setArmed(false);setTargeting(null);setOkaArmed(false);setCaravanMode(false);setSiegeMode(true);setSiegePick([]);
+    flash(`Great Siege! Tap up to ${SIEGE_MAX} rival squares pressing your colony to raise them as your ramparts.`);}
+  function commitSiege(picks){const s=turn;const nb=cloneB(live.current.board);for(const [r,c] of picks)nb[r][c]=-1;
+    setBoard(nb);setForts(f=>[...f,{seat:s,cells:picks}]);setTraitUsed(t=>({...t,[s]:true}));setSiegeMode(false);setSiegePick([]);
+    flash(`The Great Siege holds! ${picks.length} besieger${picks.length>1?"s are":" is"} broken and raised as your ramparts.`);}
   // Kyrgyzstan's Silk Road: enter caravan-placement mode, then tap a far-off open square.
   function toggleSilkRoad(){if(!curHuman()||over)return;
     if(caravan&&caravan.seat===turn){ // a caravan is already out: lift it to move it
@@ -1240,7 +1285,7 @@ function App(){
   const cur=turn,curCol=colorOf(cur);const standings=[...seatsN].sort((a,b)=>scoreOf(b)-scoreOf(a));const winner=over?standings[0]:null;
   const teamList=teamMode?[...new Set(seatsN.map(s=>teamOf(s)).filter(t=>t))]:[];
   const teamScore=t=>seatsN.filter(s=>teamOf(s)===t).reduce((a,s)=>a+scoreOf(s),0);
-  const teamColor=t=>TEAM_PASTEL[t]||T.accent;
+  const teamColor=t=>(cbMode?CB_TEAM[t]:TEAM_PASTEL[t])||T.accent;
   const winTeam=(over&&teamList.length)?teamList.slice().sort((a,b)=>teamScore(b)-teamScore(a))[0]:0;
   const scs=seatsN.map(scoreOf);const everyoneStarted=seatsN.every(s=>placed(s)>=4);
   const fertile=(everyoneStarted&&Math.max(...scs)-Math.min(...scs)>=12)?seatsN[scs.indexOf(Math.min(...scs))]:0;
@@ -1259,7 +1304,7 @@ function App(){
       <button onClick={usePower} disabled={!usable} style={{...miniBtn,width:"100%",padding:"11px 12px",fontSize:12.5,opacity:usable?1:.4,borderColor:usable?T.accent:T.line,color:armed?"#0c0e12":T.ink,background:armed?T.accent:THEME.panel}}>
         {armed?"On (tap to cancel)":targeting?"Choosing target…":early?`Unlocks after ${POWER_MIN} pieces`:late?"Locked, too late now":ch>0?`Use, ${P.trigger}`:"No charges left"}</button>
     </div>;})():null;
-  const traitCardEl=(oTraits&&curHuman()&&!over&&["brazil","morocco","chile","nepal","netherlands","guatemala","botswana","kyrgyzstan"].includes(civOf(cur)))?(()=>{
+  const traitCardEl=(oTraits&&curHuman()&&!over&&["brazil","morocco","chile","nepal","netherlands","guatemala","botswana","kyrgyzstan","malta"].includes(civOf(cur)))?(()=>{
     const cv=civOf(cur);const spent=!!traitUsed[cur];
     const M={brazil:{tag:"CARNIVAL",on:carnArmed,toggle:toggleCarnival,desc:"Once per game: your next piece may link corner to corner off ANY color.",act:"Use, then place a piece",onLbl:"On (tap to cancel)"},
              chile:{tag:"MINER",on:minerArmed,toggle:toggleMiner,desc:"Once per game: your next piece may link corner to corner off the map's walls.",act:"Use, then place a piece",onLbl:"On (tap to cancel)"},
@@ -1267,6 +1312,7 @@ function App(){
              guatemala:{tag:"LONG COUNT",on:lcArmed,toggle:toggleLongCount,desc:"Once per game: place your next piece, then immediately place one more in the same turn.",act:"Use, then place a piece",onLbl:"On (tap to cancel)"},
              botswana:{tag:"OKAVANGO",on:okaArmed,toggle:toggleOkavango,desc:"Once per game: your next placement floods 5 open squares around your colony. They block everyone and score +5 for 3 turns, then vanish back to open ground.",act:"Use, then place a piece",onLbl:"On (tap to cancel)"},
              kyrgyzstan:{tag:"SILK ROAD",on:caravanMode,toggle:toggleSilkRoad,desc:`Once per game: drop a caravan on open ground at least ${CARAVAN_MIN} away. It scores +1; reach it with your colony and claim a haul that grows with the distance.`,act:"Use, then tap a far square",onLbl:"Choosing… (tap to cancel)"},
+             malta:{tag:"THE GREAT SIEGE",on:siegeMode,toggle:toggleSiege,desc:`Once per game, when at least ${SIEGE_MIN} rival squares press your colony: break up to ${SIEGE_MAX} of those besiegers and raise them as your ramparts. They stop everyone and each scores +1 for you.`,act:"Use, then tap besiegers",onLbl:"Choosing… (tap to cancel)"},
              netherlands:{tag:"ORANJE",on:!!ruil,toggle:toggleRuil,desc:"Once per game: trade one of your unused pieces for any unused piece in a rival's tray (a Dutch Golden-Age barter).",act:"Use, then tap a piece to offer",onLbl:"Trading… (tap to cancel)"},
              morocco:{tag:"THE BAZAAR",on:bazaarPick,toggle:toggleBazaar,desc:"Once per game: reclaim a piece you've played, at the cost of your smallest unused piece.",act:"Use, then tap a played piece",onLbl:"Choosing… (tap to cancel)"}}[cv];
     const locked=placed(cur)<1;const caravanOut=cv==="kyrgyzstan"&&caravan&&caravan.seat===cur;
@@ -1287,27 +1333,40 @@ function App(){
       <Title small/><div style={{display:"flex",gap:mob?5:8}}><button onClick={()=>setShowSettings(true)} style={{...ghostBtn,...(mob?{padding:"6px 9px"}:{})}}>{mob?"⚙":"⚙ theme"}</button><button onClick={()=>setShowInfo(true)} style={{...ghostBtn,...(mob?{padding:"6px 9px"}:{})}}>{mob?"?":"? help"}</button>{!mob&&<button onClick={()=>setScreen("players")} style={ghostBtn}>setup</button>}<button onClick={()=>setScreen("home")} style={{...ghostBtn,...(mob?{padding:"6px 9px"}:{})}}>quit</button></div>
     </div>
     {teamMode?
-      <div style={{display:"flex",gap:mob?6:10,flexWrap:"wrap",marginBottom:mob?7:14}}>
+      (mob?
+        <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:7}}>
+          {teamList.map(t=>{const mem=seatsN.filter(s=>teamOf(s)===t),act=teamOf(turn)===t&&!over;
+            return(<div key={"t"+t} style={{flex:"1 1 0",minWidth:0,display:"flex",alignItems:"center",gap:5,padding:"4px 7px",borderRadius:7,border:`1px solid ${act?teamColor(t):T.line}`,background:act?shade(teamColor(t),-0.72):T.panel}}>
+              <span style={{fontFamily:T.mono,fontSize:9.5,fontWeight:700,color:teamColor(t),letterSpacing:.5}}>T{t}</span>
+              <span style={{display:"flex",gap:2,flex:"0 0 auto"}}>{mem.map(s=>(<span key={s} title={CIVS[civOf(s)].name} style={{width:8,height:8,borderRadius:2,background:colorOf(s),opacity:done.has(s)?.4:1,outline:s===turn&&!over?`1.5px solid ${T.ink}`:"none"}}/>))}</span>
+              <span style={{fontFamily:T.mono,fontSize:15,fontWeight:700,marginLeft:"auto"}}>{teamScore(t)}</span></div>);})}
+          {seatsN.filter(s=>!teamOf(s)).map(s=>{const act=s===turn&&!over;
+            return(<div key={"solo"+s} style={{flex:"1 1 0",minWidth:0,display:"flex",alignItems:"center",gap:5,padding:"4px 7px",borderRadius:7,border:`1px solid ${act?colorOf(s):T.line}`,background:act?shade(colorOf(s),-0.72):T.panel,opacity:done.has(s)?.45:1}}>
+              <span style={{width:8,height:8,borderRadius:2,background:colorOf(s)}}/>
+              <span style={{fontFamily:T.mono,fontSize:15,fontWeight:700,marginLeft:"auto"}}>{scoreOf(s)}</span></div>);})}
+        </div>
+      :
+      <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14}}>
         {teamList.map(t=>{const mem=seatsN.filter(s=>teamOf(s)===t),act=teamOf(turn)===t&&!over;
-          return(<div key={"t"+t} style={{flex:mob?"1 1 44%":"1 1 210px",minWidth:0,...card,padding:mob?"6px 9px":"9px 12px",borderColor:act?teamColor(t):T.line,boxShadow:act?`0 0 0 1px ${teamColor(t)}`:"none"}}>
+          return(<div key={"t"+t} style={{flex:"1 1 210px",minWidth:0,...card,padding:"9px 12px",borderColor:act?teamColor(t):T.line,boxShadow:act?`0 0 0 1px ${teamColor(t)}`:"none"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",fontFamily:T.mono,fontWeight:700,color:teamColor(t),marginBottom:4}}>
-              <span style={{fontSize:mob?11.5:12.5,letterSpacing:1}}>TEAM {t}</span><span style={{fontSize:mob?17:19}}>{teamScore(t)}</span></div>
+              <span style={{fontSize:12.5,letterSpacing:1}}>TEAM {t}</span><span style={{fontSize:19}}>{teamScore(t)}</span></div>
             {mem.map(s=>{const out=done.has(s),cur2=s===turn&&!over;return(<div key={s} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:6,fontSize:11,marginTop:2,opacity:out?.45:1,fontWeight:cur2?700:400}}>
-              <span style={{display:"flex",gap:5,alignItems:"center",minWidth:0}}><span style={{width:9,height:9,borderRadius:2,flexShrink:0,background:colorOf(s)}}/><span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{cur2?"▸ ":""}{CIVS[civOf(s)].name}</span></span>
+              <span style={{display:"flex",gap:5,alignItems:"center",minWidth:0}}><span style={{width:9,height:9,borderRadius:2,flexShrink:0,background:colorOf(s)}}/><span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{cur2?"▸ ":""}{CIVS[civOf(s)].name}{fertile===s&&!out?<span style={{color:"#8fae6b"}}> · fertile</span>:""}</span></span>
               <span style={{fontFamily:T.mono,color:T.muted,flexShrink:0}}>{scoreOf(s)}</span></div>);})}
           </div>);})}
         {seatsN.filter(s=>!teamOf(s)).map(s=>{const out=done.has(s),act=s===turn&&!over;
-          return(<div key={"solo"+s} style={{flex:mob?"1 1 44%":"1 1 150px",minWidth:0,...card,padding:mob?"6px 9px":"9px 12px",borderColor:act?colorOf(s):T.line,boxShadow:act?`0 0 0 1px ${colorOf(s)}`:"none",opacity:out?.5:1,display:"flex",flexDirection:"column",justifyContent:"center"}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline"}}><span style={{fontFamily:T.mono,fontSize:mob?10:11,color:T.muted,letterSpacing:1}}>SOLO</span><span style={{fontFamily:T.mono,fontWeight:700,fontSize:mob?17:19}}>{scoreOf(s)}</span></div>
+          return(<div key={"solo"+s} style={{flex:"1 1 150px",minWidth:0,...card,padding:"9px 12px",borderColor:act?colorOf(s):T.line,boxShadow:act?`0 0 0 1px ${colorOf(s)}`:"none",opacity:out?.5:1,display:"flex",flexDirection:"column",justifyContent:"center"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline"}}><span style={{fontFamily:T.mono,fontSize:11,color:T.muted,letterSpacing:1}}>SOLO</span><span style={{fontFamily:T.mono,fontWeight:700,fontSize:19}}>{scoreOf(s)}</span></div>
             <span style={{display:"flex",gap:5,alignItems:"center",fontSize:11.5,fontWeight:600,marginTop:2,minWidth:0}}><span style={{width:9,height:9,borderRadius:2,flexShrink:0,background:colorOf(s)}}/><span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{CIVS[civOf(s)].name}</span></span></div>);})}
-      </div>
+      </div>)
     :mob?
-      <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:7}}>
-        {seatsN.map(s=>{const out=done.has(s),act=s===turn&&!over;
-          return(<div key={s} style={{flex:"1 1 40%",minWidth:0,display:"flex",alignItems:"center",gap:6,padding:"5px 8px",borderRadius:8,border:`1px solid ${act?colorOf(s):T.line}`,background:act?shade(colorOf(s),-0.72):T.panel,boxShadow:act?`0 0 0 1px ${colorOf(s)}`:"none",opacity:out?.45:1}}>
-            <span style={{width:11,height:11,borderRadius:3,flexShrink:0,background:colorOf(s)}}/>
-            <span style={{fontSize:11.5,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:"1 1 auto",minWidth:0}}>{teamOf(s)?<b style={{color:colorOf(s)}}>T{teamOf(s)} </b>:""}{CIVS[civOf(s)].name}{out?" · out":""}</span>
-            <span style={{fontFamily:T.mono,fontSize:14,fontWeight:700,flexShrink:0}}>{scoreOf(s)}</span></div>);})}
+      <div style={{display:"flex",gap:4,marginBottom:6}}>
+        {seatsN.map(s=>{const out=done.has(s),act=s===turn&&!over;const g=glyphOf(s);
+          return(<div key={s} title={CIVS[civOf(s)].name} style={{flex:"1 1 0",minWidth:0,display:"flex",alignItems:"center",justifyContent:"center",gap:4,padding:"3px 5px",borderRadius:6,border:`1px solid ${act?colorOf(s):T.line}`,background:act?shade(colorOf(s),-0.7):T.panel,opacity:out?.4:1}}>
+            <span style={{width:9,height:9,borderRadius:2,flexShrink:0,background:colorOf(s),display:"flex",alignItems:"center",justifyContent:"center",fontSize:6,color:"#0009"}}>{g}</span>
+            <span style={{fontFamily:T.mono,fontSize:14,fontWeight:700}}>{scoreOf(s)}</span>
+            {fertile===s&&!out&&<span style={{color:"#8fae6b",fontSize:9}}>🌱</span>}</div>);})}
       </div>
     :
     <div style={count<=2?{display:"flex",gap:8,flexWrap:"wrap",marginBottom:14,justifyContent:"center"}:{display:"grid",gridTemplateColumns:`repeat(${count},minmax(0,1fr))`,gap:8,marginBottom:14}}>
@@ -1320,7 +1379,7 @@ function App(){
             <span style={{fontFamily:T.mono,fontSize:15,fontWeight:700,flexShrink:0}}>{scoreOf(s)}</span></div>
           <div style={{fontSize:9.5,color:T.muted,fontFamily:T.mono,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{PIECE_IDS.length*copies-placed(s)} left{out?" · out":""}{fertile===s&&!out?<span style={{color:"#8fae6b"}}> · fertile</span>:""}</div></div>);})}
     </div>}
-    <div style={{display:"flex",gap:mob?10:18,flexWrap:"wrap",alignItems:"flex-start"}}>
+    <div style={{display:"flex",gap:mob?6:18,flexWrap:"wrap",alignItems:"flex-start"}}>
       <div style={mob?{width:"100%",flex:"1 1 100%"}:{flex:"1 1 360px",maxWidth:560}}>
         <div ref={boardWrapRef} style={{position:"relative",overflow:mob?"hidden":"visible",touchAction:mob?(zoom>1?"none":"pan-y"):"auto",borderRadius:10}}>
         <div ref={transformRef} style={{transform:mob?`translate(${pan.x}px,${pan.y}px) scale(${zoom})`:"none",transformOrigin:"center center",transition:"transform .18s ease-out"}}>
@@ -1331,10 +1390,12 @@ function App(){
           {board.map((row,r)=>row.map((v,c)=>{const k=r+","+c;let style={background:BT.cell};let inner=null;
             if(v===-2){style={background:BT.bg};
               if(BW>N&&c===(BW-1)/2)style={background:BT.grid,backgroundImage:`repeating-linear-gradient(0deg, ${BT.wallH} 0 2px, transparent 2px 7px)`,opacity:.85};} // twin dishes: the seam reads as a deliberate channel
-            else if(v===-1)style={background:BT.wall,backgroundImage:`repeating-linear-gradient(45deg,${BT.wall} 0 3px,${BT.wallH} 3px 6px)`,boxShadow:`inset 0 0 0 1px ${BT.wallH}`};
-            else if(v===-3){const ff=floods.find(f=>f.cells.some(([a,b])=>a===r&&b===c));const tl=ff?ff.turnsLeft:3;style={background:"#274d5e",backgroundImage:"linear-gradient(135deg,#356b80 0%,#22434f 100%)",boxShadow:"inset 0 0 0 1px #4a8ba3"};inner=<span style={{color:"#cdeaf4",fontSize:"0.82em",fontWeight:700,opacity:tl>=2?.95:.55}}>{tl>=3?"✕":tl===2?"╲":"·"}</span>;} // Okavango floodwater, ticking down
-            else if(v===-4){const cc=caravan?colorOf(caravan.seat):T.accent;style={background:shade(cc,-0.55),boxShadow:`inset 0 0 0 1px ${cc}`};inner=<span style={{color:cc,fontSize:"0.82em",fontWeight:700}}>★</span>;} // Silk Road caravan
-            else if(v>0){style=pieceCellStyle(colorOf(v),pieceTex,BT.cell);const g=glyphOf(v);if(g)inner=<span style={{color:"#0007",fontSize:"0.7em",fontWeight:700}}>{g}</span>;}
+            else if(v===-1){const ft=forts.find(f=>f.cells.some(([a,b])=>a===r&&b===c));
+              if(ft){const fc=colorOf(ft.seat);style={background:shade(fc,-0.5),backgroundImage:`repeating-linear-gradient(45deg,${shade(fc,-0.5)} 0 3px,${shade(fc,-0.2)} 3px 6px)`,boxShadow:`inset 0 0 0 1px ${fc}`};inner=<span style={{color:fc,fontSize:"0.66em",fontWeight:700,opacity:.9}}>⛨</span>;} // Malta's ramparts
+              else style={background:BT.wall,backgroundImage:`repeating-linear-gradient(45deg,${BT.wall} 0 3px,${BT.wallH} 3px 6px)`,boxShadow:`inset 0 0 0 1px ${BT.wallH}`};}
+            else if(v===-3){const ff=floods.find(f=>f.cells.some(([a,b])=>a===r&&b===c));const tl=ff?ff.turnsLeft:3;const fb=cbMode?CB_FLOOD:"#356b80";style={background:cbMode?shade(CB_FLOOD,-0.45):"#274d5e",backgroundImage:`linear-gradient(135deg,${fb} 0%,${shade(fb,-0.45)} 100%)`,boxShadow:`inset 0 0 0 1px ${shade(fb,.25)}`};inner=<span style={{color:"#eaf6fb",fontSize:"0.82em",fontWeight:700,opacity:tl>=2?.95:.55}}>{tl>=3?"✕":tl===2?"╲":"·"}</span>;} // Okavango floodwater, ticking down
+            else if(v===-4){const cc=cbMode?CB_CARAVAN:(caravan?colorOf(caravan.seat):T.accent);style={background:shade(cc,-0.55),boxShadow:`inset 0 0 0 1px ${cc}`};inner=<span style={{color:cc,fontSize:"0.82em",fontWeight:700}}>★</span>;} // Silk Road caravan
+            else if(v>0){style=pieceCellStyle(colorOf(v),pieceTex,BT.cell);const g=glyphOf(v);if(g)inner=<span style={{color:cbMode?"#000c":"#0007",fontSize:cbMode?"0.82em":"0.7em",fontWeight:700}}>{g}</span>;}
             if(v===0&&specials.has(k)){const t=TILE[specials.get(k)];inner=<span style={{color:t.col,fontSize:"0.72em",fontWeight:700}}>{t.mk}</span>;}
             if(v===0&&infect.has(k)){style={background:BT.cell,backgroundImage:"radial-gradient(circle,rgba(124,170,72,.32),rgba(124,170,72,.08))"};inner=<span style={{color:"#9cc46a",fontSize:"0.62em",fontWeight:700,opacity:.9}}>☣</span>;}
             if(v===0&&reserved&&reserved.k===k)inner=<span style={{color:colorOf(reserved.seat),fontSize:"0.78em",fontWeight:700}}>⚑</span>;
@@ -1342,28 +1403,26 @@ function App(){
             if(tentSet.has(k))style={background:tent&&tent.ok===false?"#9a4742":curCol,boxShadow:`inset 0 0 0 1px ${shade(tent&&tent.ok===false?"#9a4742":curCol,.5)}`,opacity:tent&&tent.ok===false?.75:1};
             else if(hoverSet.has(k))style={background:hoverSet.get(k)?curCol:"#9a4742",opacity:.55};
             if(okaArmed&&floodPick.some(([a,b])=>a===r&&b===c)){style={background:"#2c5769",backgroundImage:"linear-gradient(135deg,#3f7f96,#2b5464)",boxShadow:`inset 0 0 0 2px ${curCol}`};inner=<span style={{color:"#cdeaf4",fontSize:"0.82em",fontWeight:700}}>✕</span>;} // Okavango cells you've chosen
+            if(siegeMode&&siegePick.some(([a,b])=>a===r&&b===c)){style={...style,boxShadow:`inset 0 0 0 2px ${T.accent}`};inner=<span style={{color:T.accent,fontSize:"0.8em",fontWeight:700}}>⛨</span>;} // Great Siege picks
             const ogArm=armed&&seats[turn-1]?.power==="overgrow"; // Overgrow: rival squares become drop targets too
-            const clickable=v!==-2&&((v===-4&&caravan&&caravan.seat===turn&&curHuman())||(okaArmed?v===0:(caravanMode?v===0:(targeting||(sel&&(v===0||(ogArm&&v>0&&v!==turn)||ascentArmed))))));
+            const clickable=v!==-2&&((v===-4&&caravan&&caravan.seat===turn&&curHuman())||(siegeMode?(v>0&&v!==turn):(okaArmed?v===0:(caravanMode?v===0:(targeting||(sel&&(v===0||(ogArm&&v>0&&v!==turn)||ascentArmed)))))));
             return <div key={k} onMouseEnter={()=>cellEnter(r,c)} onClick={clickable?()=>cellClick(r,c):undefined} style={{position:"relative",borderRadius:2,display:"flex",alignItems:"center",justifyContent:"center",cursor:clickable?"pointer":"default",fontSize:cellPx,...style}}>{inner}</div>;}))}
         </div>
         </div>
         </div>
-        {mob&&<div style={{position:"absolute",top:8,right:8,zIndex:8,display:"flex",flexDirection:"column",gap:5}}>
-          <button onClick={()=>zoomBy(1.4)} title="Zoom in" style={zoomBtn}>+</button>
-          <button onClick={()=>zoomBy(1/1.4)} title="Zoom out" style={zoomBtn}>−</button>
-          {zoom!==1&&<button onClick={resetZoom} title="Reset zoom" style={zoomBtn}>⤾</button>}
-        </div>}
+        {mob&&zoom!==1&&<button onClick={resetZoom} title="Reset zoom" style={{...zoomBtn,position:"absolute",top:8,right:8,zIndex:8}}>⤾</button>}
         </div>
-        <div style={{fontSize:mob?10.5:12.5,color:T.muted,fontFamily:T.mono,marginTop:mob?3:9,minHeight:mob?13:18,lineHeight:1.2}}>{guide()}{!mob&&zoom===1&&N>22?" · Pinch to zoom in for tight spots.":""}</div>
+        {!mob&&<div style={{fontSize:12.5,color:T.muted,fontFamily:T.mono,marginTop:9,minHeight:18,lineHeight:1.2}}>{guide()}{zoom===1&&N>22?" · Pinch to zoom in for tight spots.":""}</div>}
         {/* Mobile control deck, inline right under the board: D-pad nudges the piece,
             the cluster spins/flips/places, abilities open a sheet. Compact by design. */}
         {mob&&(()=>{const arrow={flex:"1 1 0",height:38,borderRadius:8,border:`1px solid ${T.line}`,background:T.cell,color:T.ink,fontSize:19,fontFamily:T.mono,padding:0,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"};
           const dis={opacity:.3};const legal=tent&&tent.ok!==false;
           return <div style={{marginTop:8,background:T.panel,border:`1px solid ${T.line}`,borderRadius:10,padding:8,display:"flex",flexDirection:"column",gap:6}}>
-            {targeting||okaArmed||caravanMode?
+            {targeting||okaArmed||caravanMode||siegeMode?
               <div style={{display:"flex",gap:8,alignItems:"center"}}>
-                <div style={{flex:"1 1 0",fontFamily:T.mono,fontSize:12,color:T.accent}}>◈ {okaArmed?`Tap 5 squares to flood (${floodPick.length}/5)`:caravanMode?"Tap a far-off open square":"Tap the board to choose a target"}</div>
-                <button onClick={()=>{setTargeting(null);if(okaArmed){setOkaArmed(false);setFloodPick([]);}if(caravanMode)setCaravanMode(false);}} style={{...miniBtn,padding:"9px 18px",fontSize:14,color:T.accent}}>✕ Cancel</button>
+                <div style={{flex:"1 1 0",fontFamily:T.mono,fontSize:12,color:T.accent}}>◈ {okaArmed?`Tap 5 squares to flood (${floodPick.length}/5)`:siegeMode?`Tap besiegers to wall (${siegePick.length}/${SIEGE_MAX})`:caravanMode?"Tap a far-off open square":"Tap the board to choose a target"}</div>
+                {siegeMode&&siegePick.length>0&&<button onClick={()=>commitSiege(siegePick)} style={{...miniBtn,padding:"9px 14px",fontSize:13,borderColor:T.accent,color:T.accent}}>Done</button>}
+                <button onClick={()=>{setTargeting(null);if(okaArmed){setOkaArmed(false);setFloodPick([]);}if(caravanMode)setCaravanMode(false);if(siegeMode){setSiegeMode(false);setSiegePick([]);}}} style={{...miniBtn,padding:"9px 14px",fontSize:13,color:T.accent}}>✕</button>
               </div>
             :<>
               {/* arrows + orient on one compact row */}
@@ -1377,11 +1436,11 @@ function App(){
               </div>
               {/* place + undo + ability */}
               <div style={{display:"flex",gap:5}}>
-                <button onClick={submit} disabled={!legal} style={{...miniBtn,flex:"1 1 0",padding:"11px 8px",fontSize:14,fontWeight:700,opacity:legal?1:.4,borderColor:legal?curCol:T.line,color:legal?curCol:T.muted,background:legal?shade(curCol,-0.72):THEME.panel}}>
-                  {sel?(legal?"✓ Place piece":"✕ Illegal spot, nudge it"):"Pick a piece below ↓"}</button>
+                <button onClick={submit} disabled={!legal} style={{...miniBtn,flex:"1 1 0",padding:"11px 8px",fontSize:13.5,fontWeight:700,opacity:legal?1:.4,borderColor:legal?curCol:T.line,color:legal?curCol:T.muted,background:legal?shade(curCol,-0.72):THEME.panel}}>
+                  {sel?(legal?"✓ Place":"✕ Illegal"):"Pick a piece"}</button>
                 <button onClick={()=>tent?setTent(null):undoPower()} disabled={!tent&&!pundo} style={{...miniBtn,flex:"0 0 auto",padding:"11px 13px",fontSize:14,opacity:(tent||pundo)?1:.4}}>↺</button>
                 {hasSheet&&(()=>{const armedAbility=armed||carnArmed||minerArmed||ascentArmed||lcArmed||okaArmed||caravanMode||!!ruil||bazaarPick;
-                  return <button onClick={()=>setMobSheet(true)} style={{...miniBtn,flex:"0 0 auto",padding:"11px 12px",fontSize:12.5,fontWeight:600,borderColor:T.accent,color:armedAbility?"#0c0e12":T.accent,background:armedAbility?T.accent:shade(T.accent,-0.74)}}>Ability</button>;})()}
+                  return <button onClick={()=>setMobSheet(true)} style={{...miniBtn,flex:"1 1 0",padding:"11px 8px",fontSize:13,fontWeight:700,borderColor:T.accent,color:armedAbility?"#0c0e12":T.accent,background:armedAbility?T.accent:shade(T.accent,-0.74)}}>Ability</button>;})()}
               </div>
             </>}
           </div>;})()}
@@ -1399,12 +1458,12 @@ function App(){
         {!mob&&traitCardEl}
         {oTraits&&!mob&&<div style={{...card,padding:"8px 12px",marginBottom:10}}>
           <span style={{fontFamily:T.mono,fontSize:10.5,color:colorOf(cur)}}>✦ {CIVS[civOf(cur)].name.toUpperCase()}</span> <span style={{fontSize:11.5,color:T.ink}}>{TRAIT[civOf(cur)][0]}</span> <span style={{fontSize:11,color:T.muted}}>,  {TRAIT[civOf(cur)][1]}</span></div>}
-        <div style={{...card,padding:mob?"10px 10px 6px":12,opacity:curHuman()?1:.5}}>
-          <div style={{fontFamily:T.mono,fontSize:11,color:T.muted,letterSpacing:1.5,marginBottom:mob?5:9,display:"flex",justifyContent:"space-between"}}><span>{CIVS[civOf(cur)].name.toUpperCase()}, {curHuman()?"YOUR PIECES":scheme}</span></div>
+        <div style={{...card,padding:mob?"6px 6px 4px":12,opacity:curHuman()?1:.5}}>
+          {!mob&&<div style={{fontFamily:T.mono,fontSize:11,color:T.muted,letterSpacing:1.5,marginBottom:9,display:"flex",justifyContent:"space-between"}}><span>{CIVS[civOf(cur)].name.toUpperCase()}, {curHuman()?"YOUR PIECES":scheme}</span></div>}
           {/* Mobile: one swipeable row (big pieces first) so the board stays on
               screen while you shop for a shape. Desktop keeps the wrap grid. */}
           <div style={mob?{display:"flex",flexWrap:"wrap",gap:5,justifyContent:"center"}:{display:"flex",flexWrap:"wrap",gap:7}}>
-            {(mob?[...PIECE_IDS].sort((a,b)=>PSIZE[b]-PSIZE[a]):PIECE_IDS).map(id=>{const u=used[cur]?.[id]||0;const gone=u>=copies;const left=copies-u;const p=PICTURE[id];const isSel=selId===id;const px=mob?9:8;
+            {(mob?[...PIECE_IDS].sort((a,b)=>PSIZE[b]-PSIZE[a]):PIECE_IDS).map(id=>{const u=used[cur]?.[id]||0;const gone=u>=copies;const left=copies-u;const p=PICTURE[id];const isSel=selId===id;const px=mob?7:8;
               const tradeable=bazaarPick&&u>0; // Bazaar: played pieces light up as reclaim targets
               const offerable=ruil&&ruil.give==null&&!gone; // Oranje: unused pieces are offerable
               const isOffer=ruil&&ruil.give===id;
