@@ -1180,21 +1180,6 @@ function App(){
       </button>
     </div></div>;
 
-  function guide(){if(!curHuman())return""; // whose turn it is already reads off the scoreboard colour, so stay quiet
-    if(targeting){const P=POWERS[targeting.id];const left=P.picks-targeting.picks.length;const what=targeting.id==="clear"?"of your squares":targeting.id==="graft"?"rival square that touches your color":targeting.id==="blight"?"rival square anywhere":targeting.id==="terraform"?"wall square":targeting.id==="reserve"?"empty square to flag":"empty square"+(left>1?"s":"");return`${P.name}: click ${left} ${what}, or Cancel.`;}
-    if(bazaarPick)return"The Bazaar: tap a piece you've already played to reclaim it.";
-    if(tent)return"Looks right? Lock it in.";
-    if(armed&&seats[turn-1]?.power==="overgrow")return"Overgrow is armed, cover exactly one rival square with this piece.";
-    if(armed)return"Bridge is live, set a piece flush against your own color.";
-    if(carnArmed)return"Carnival! This piece may link off ANY color's corners.";
-    if(minerArmed)return"Miner! This piece may link off the map's walls.";
-    if(ascentArmed)return"Himalayan Ascent! Anchor edge-to-edge, then climb over walls and rivals.";
-    if(lcArmed)return"Long Count! Place this piece, then you place one more.";
-    if(okaArmed)return`Okavango, tap 5 open squares touching your colony (${floodPick.length}/5).`;
-    if(siegeMode)return`Great Siege, tap enemy squares to breach, chaining outward (${siegePick.length}/${SIEGE_MAX}).`;
-    if(caravanMode)return`Silk Road, tap an open square at least ${CARAVAN_MIN} from all your pieces.`;
-    if(sel)return mob?"Nudge it with the D-pad, spin or flip, then Place.":"Spin it with R, flip with F, then drop it on the board.";
-    return"Choose a piece and start spreading."+(oPowers?" Your power's waiting on the right.":"");}
   // Brazil's Carnival: arm/disarm; consumed on the next placement.
   function toggleCarnival(){if(traitUsed[turn]||!curHuman()||over)return;if(placed(turn)<1){flash("Place your first piece before using an ability.");return;}
     setCarnArmed(a=>!a);flash(carnArmed?"Carnival off":"Carnival! Your next piece may link off any color.");}
@@ -1513,9 +1498,6 @@ function App(){
           {targeting&&<button onClick={()=>setTargeting(null)} style={{...miniBtn,color:T.accent}}>✕ Cancel</button>}
           <button onClick={()=>setAskConcede(true)} disabled={!curHuman()||over} style={{...miniBtn,color:"#c5a37a",borderColor:"#3a3324"}}>Give up</button>
         </div>}
-        {/* Status line: what just happened, held in a fixed slot so nothing shifts. */}
-        {!mob&&<div style={{...card,padding:"7px 11px",marginBottom:10,height:34,display:"flex",alignItems:"center",borderColor:toast?T.accent:T.line,transition:"border-color .2s"}}>
-          <span style={{fontFamily:T.mono,fontSize:11,color:toast?T.ink:T.muted,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{toast||guide()}</span></div>}
         {!mob&&powerCardEl}
         {!mob&&traitCardEl}
         {oTraits&&!mob&&<div style={{...card,padding:"8px 12px",marginBottom:10,height:104,overflow:"hidden",lineHeight:1.45}}>
@@ -1549,7 +1531,7 @@ function App(){
         <button onClick={()=>{setMobSheet(false);setAskConcede(true);}} disabled={!curHuman()||over} style={{...miniBtn,width:"100%",marginTop:4,color:"#c5a37a",borderColor:"#3a3324"}}>Give up</button>
       </div>
     </div>}
-    {toast&&mob&&<div style={{...toastStyle,bottom:20,left:12,right:12,transform:"none",textAlign:"center"}}>{toast}</div>}
+    {toast&&<div style={{...toastStyle,...(mob?{bottom:20,left:12,right:12,transform:"none",textAlign:"center"}:{})}}>{toast}</div>}
     {settingsModal}
     {ruil&&ruil.give!=null&&<div style={overlay} onClick={()=>setRuil(null)}><div onClick={e=>e.stopPropagation()} style={{...card,padding:"20px 22px",maxWidth:460,width:"100%",maxHeight:"80vh",overflow:"auto"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}><b style={{fontFamily:T.display,fontSize:18}}>Oranje</b><button onClick={()=>setRuil(null)} style={ghostBtn}>cancel</button></div>
