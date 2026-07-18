@@ -35,7 +35,7 @@ const {useState,useMemo,useRef,useEffect,useCallback}=React;
      - No network, storage, cookies, secrets, or auth: nothing to exfiltrate.
      - No code-execution sinks: no eval/Function, no innerHTML, no document.write.
        Every setTimeout takes a function ref (never a string).
-     - The only inputs are fixed <select> dropdowns; their values are whitelisted
+     - The only inputs are fixed custom dropdowns; their values are whitelisted
        in `upd` before touching state, so unknown ids can never crash a lookup.
      - Lookups degrade instead of crashing: buildMap falls back to "open" on an
        unknown map id, civOf tolerates bad seat indices, and targetClick bounds-
@@ -66,6 +66,11 @@ const CIVS = {
   mexico:{name:"Mexico",region:"North America",color:"#157A44"},
   nepal:{name:"Nepal",region:"The Himalaya",color:"#9C2B44"},
   netherlands:{name:"Netherlands",region:"Northern Europe",color:"#EA7A26"},
+  usa:{name:"USA",region:"North America",color:"#1F3A93"},
+  spain:{name:"Spain",region:"Southern Europe",color:"#FF1E3C"},
+  nicaragua:{name:"Nicaragua",region:"Central America",color:"#EDF2F7"},
+  kenya:{name:"Kenya",region:"East Africa",color:"#3FBF5F"},
+  lebanon:{name:"Lebanon",region:"West Asia",color:"#8B3FD9"},
 };
 const CIV_IDS = Object.keys(CIVS);
 const TRAIT = {
@@ -73,7 +78,7 @@ const TRAIT = {
   botswana:["Okavango","the Okavango Delta's floodwaters fan across the Kalahari, so once per game a placement floods 5 open squares around your colony: they block everyone and score +5 for 3 turns, then the water recedes and they return to open ground"],
   lithuania:["Trailblazer","the Grand Duchy of Lithuania was once one of medieval Europe's largest realms, so it begins with a second outpost planted out toward mid-board"],
   guatemala:["Long Count","the Maya tracked time in vast turning cycles, so once per game the great cycle comes round and it places two pieces in a single turn"],
-  colombia:["Second Harvest","Colombia's coffee slopes ripen twice a year, so it gets one extra power charge"],
+  colombia:["Biodiversity","Colombia is one of the most biodiverse places on earth, home to more bird species than any nation, so its colony never stops living: every third piece it plays, its birds carry a seed out past the colony edge and a free square takes root there, opening a whole new front"],
   tonga:["Big Hits","Tonga's rugby giants hit hardest, so it scores +1 point for every 5-square piece it places"],
   malta:["The Great Siege","Malta withstood the Great Siege and raised Valletta from its rubble, so once rivals press in it breaks up to 5 enemy squares in a chain and raises them as its own ramparts, which score for Malta and anchor its growth like its own colour"],
   dominican:["Merengue","the Dominican merengue never stops moving, so it scores 1 bonus point for every 4 pieces it places"],
@@ -84,6 +89,11 @@ const TRAIT = {
   mexico:["Chinampas","the Aztecs farmed floating gardens reclaimed from the lake, so twice per game, when a placement seals an empty pocket, it claims up to 8 of those cells as land"],
   nepal:["Himalayan Ascent","Nepal's climbers summit the impossible, so once per game one piece anchors on its color then climbs over open ground, walls, or up to 5 rival cells, all becoming Nepal's"],
   netherlands:["Oranje","the Dutch built a golden age on open trade under the House of Orange, so once per game it swaps an unused piece for any unused piece in a rival's tray, each keeping the other's shape"],
+  usa:["Melting Pot","America was built by newcomers bringing what they had and the country making it its own, so once per game it takes the shape a rival just played and drops that same shape free from its own colony, without spending a piece"],
+  spain:["Castells","Catalan castellers raise human towers storey by storey, so once per game Spain builds upward: a piece placed entirely on top of its own squares stands as a tower and those squares count twice"],
+  nicaragua:["Momotombo","Nicaragua lives in the shadow of its volcanoes, so once per game one of its own pieces erupts: it is destroyed, and every rival piece it touches loses half its squares, scoring Nicaragua a point for each piece it scars"],
+  kenya:["The Kick","Kenya's distance runners are famous for the kick, the surge from behind that steals the race in the final lap, so once per game it kicks: a free square for every 4 points it trails the leader by, up to 6, and nothing at all if it is already ahead"],
+  lebanon:["Byblos Alphabet","Byblos gave the world the alphabet, and an inscription is cut one letter at a time, each carved deeper than the last, so once per game Lebanon begins writing: the next piece it plays cuts the opening letter and sets the hand, and every letter after it must be carved larger than the last. Each of those scores +2, and the writing ends the moment it plays anything smaller"],
 };
 
 /* Powers, a cohesive microbiology-lab register for the petri dish. */
@@ -244,6 +254,9 @@ const cloneB=bd=>bd.map(row=>row.slice());
 // og:Overgrow may cover exactly one rival cell, blk:Set of reserved cells
 // this seat may not use}.
 function valid(board,cells,seat,first,start,x){x=x||{};const [H,W]=dimsOf(board);let og=0;
+  if(x.tower){ // Castells: the tower rises on your own colony, every square standing on your colour
+    for(const [r,c] of cells){if(!inB(r,c,H,W)||board[r][c]!==seat)return false;if(x.blk&&x.blk.has(r+","+c))return false;}
+    return true;}
   if(x.asc){ // Himalayan Ascent: anchor edge-to-edge on own color, then climb over anything (cap 5 covered)
     let covered=0,anchored=false;
     for(const [r,c] of cells){if(!inB(r,c,H,W))return false;const v=board[r][c];
@@ -265,6 +278,7 @@ function valid(board,cells,seat,first,start,x){x=x||{};const [H,W]=dimsOf(board)
     if(v===seat)return true;
     if(x.mates&&x.mates.has(v))return true; // Team play: link off a teammate's color too
     if(x.forts&&x.forts.has(a+","+b))return true; // Malta: grow out from your own ramparts
+
     if(x.mine&&v===-1)return true;   // Miner: the map's walls are your scaffolding
     if(x.anyC&&v>0)return true;}     // Carnival: everyone's network is your dance floor
   return false;}
@@ -336,6 +350,10 @@ function cpuMove(board,used,seat,first,start,brain,copies,x){copies=copies||1;co
         // ~0 to most games without costing the CPU territory elsewhere; heavier pulls
         // buy no extra arrivals and only risk tunnel vision.
         let carB=0;
+        if(x.lets&&x.lets.length){ // Byblos: drift toward the nearest unread Letter, same gentle gradient as the caravan
+          let near=1e9;
+          for(const [r,c] of cells)for(const L of x.lets){const d=Math.max(Math.abs(r-L.r),Math.abs(c-L.c));if(d<near)near=d;}
+          carB+=near<=1?260:Math.max(0,14-near)*4;}
         if(x.car){let near=1e9;
           for(const [r,c] of cells){const d=Math.max(Math.abs(r-x.car.r),Math.abs(c-x.car.c));if(d<near)near=d;}
           carB=near<=1?300:Math.max(0,16-near)*5;}
@@ -486,6 +504,35 @@ function siegeTargets(board,seat,mates,picks){const [H,W]=dimsOf(board);mates=ma
   for(const [r,c] of from)for(const [dr,dc] of [...ORTH,...DIAG]){const a=r+dr,b=c+dc,k=a+","+b;
     if(!seen.has(k)&&isFoe(a,b)){seen.add(k);out.push([a,b]);}}
   return out;}
+// The connected run of a seat's squares containing (r,c) — one played piece, as
+// long as pieces of a colour never edge-touch, which the rules guarantee.
+function pieceGroupAt(board,r,c,seat){const [H,W]=dimsOf(board);if(board[r][c]!==seat)return [];
+  const out=[],q=[[r,c]],seen=new Set([r+","+c]);
+  while(q.length){const [a,b]=q.shift();out.push([a,b]);
+    for(const [dr,dc] of ORTH){const y=a+dr,x=b+dc,k=y+","+x;
+      if(inB(y,x,H,W)&&board[y][x]===seat&&!seen.has(k)){seen.add(k);q.push([y,x]);}}}
+  return out;}
+// Which piece id a set of cells matches, comparing every orientation.
+function shapeIdOf(cells){const key=o=>{const n=norm(o);return n.map(p=>p.join(",")).sort().join("|");};
+  const target=key(cells.map(([r,c])=>[r,c]));
+  for(const id of PIECE_IDS)for(const o of orients(PIECES[id]))if(key(o)===target)return id;
+  return null;}
+// Colombia's Biodiversity: life spreads on its own. Its birds carry seeds well
+// past the colony edge, so the sprout lands on open ground a short hop away —
+// never on an existing growth corner, which would only block Colombia's own
+// pieces (you can't edge-touch your own colour). Each sprout opens a new front.
+function bioSprout(board,seat,specials){const [H,W]=dimsOf(board);
+  const mine=[];for(let r=0;r<H;r++)for(let c=0;c<W;c++)if(board[r][c]===seat)mine.push([r,c]);
+  if(!mine.length)return null;
+  const dist=(r,c)=>{let d=1e9;for(const [a,b] of mine){const k=Math.max(Math.abs(r-a),Math.abs(c-b));if(k<d)d=k;}return d;};
+  let best=null,bs=-1;
+  for(let r=0;r<H;r++)for(let c=0;c<W;c++){
+    if(board[r][c]!==0||(specials&&specials.has(r+","+c)))continue;
+    const d=dist(r,c);if(d<2||d>4)continue; // clear of our own corners, still within reach
+    let open=0;for(let dr=-1;dr<=1;dr++)for(let dc=-1;dc<=1;dc++){const a=r+dr,b=c+dc;if(inB(a,b,H,W)&&board[a][b]===0)open++;}
+    const sc=open*2+(4-Math.abs(d-3))+Math.random()*2; // room to grow, at a comfortable hop
+    if(sc>bs){bs=sc;best=[r,c];}}
+  return best;}
 // Seats whose civ carries a tile-related trait, for special-tile resolution.
 function traitSets(seats,count){const shield=new Set(),burst=new Set(),bastion=new Set();
   for(let s=1;s<=count;s++){const cv=seats[s-1]&&seats[s-1].civ;if(cv==="botswana")shield.add(s);if(cv==="kyrgyzstan")burst.add(s);}
@@ -567,13 +614,19 @@ const TEAM_PASTEL={1:"#8FB6E8",2:"#EDA9C6",3:"#C3A6E6"};
 const CB_SEAT=["#0F4C81","#E66100","#5DD9C1","#F5E663"];   // deep blue, orange, aqua, pale yellow
 const CB_TEAM={1:"#0F4C81",2:"#E66100",3:"#5DD9C1"};
 const CB_FLOOD="#7BAFD4",CB_CARAVAN="#F5E663";
-const CARAVAN_MIN=6; // Silk Road: a caravan must be dropped at least this far (Chebyshev) from all your pieces
+const CARAVAN_MIN=6;
+const LETTER_MIN=4; // Byblos: a Letter is cut this far out, so the word is a journey // Silk Road: a caravan must be dropped at least this far (Chebyshev) from all your pieces
 
 // ===== 9. SHARED UI COMPONENTS =============================================
 function Shell({children,wide,theme}){const th=theme||THEMES.dark;
   const vars={"--bg":th.bg,"--panel":th.panel,"--line":th.line,"--grid":th.grid,"--cell":th.cell,"--wall":th.wall,"--wallH":th.wallH,"--ink":th.ink,"--muted":th.muted,"--accent":th.accent,"--btnInk":th.btnInk};
   return(<div style={{...vars,minHeight:"100%",background:th.bg,color:th.ink,fontFamily:"'Hanken Grotesk',system-ui,sans-serif",padding:"clamp(8px,2.2vw,22px) clamp(5px,1.4vw,18px) 40px",transition:"background .3s,color .3s"}}>
-  <style>{`@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;800&family=Hanken+Grotesk:wght@400;500;600&family=Space+Mono&display=swap'); *{box-sizing:border-box;-webkit-tap-highlight-color:transparent} button{font-family:inherit;color:inherit;touch-action:manipulation;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none} select{outline:none} .petri-board-cells{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none} .petri-noscroll{scrollbar-width:none;-ms-overflow-style:none} .petri-noscroll::-webkit-scrollbar{display:none;width:0;height:0} @media (max-width:700px){select{font-size:16px !important;min-height:40px}} @keyframes evglow{0%{opacity:.95}65%{opacity:.5}100%{opacity:0}} @keyframes evchip{0%{opacity:0;transform:translateY(-4px)}12%{opacity:1;transform:translateY(0)}75%{opacity:1}100%{opacity:0}} @keyframes quakeShake{0%,100%{transform:translate(0,0)}15%{transform:translate(-3px,2px)}30%{transform:translate(3px,-2px)}45%{transform:translate(-3px,-1px)}60%{transform:translate(2px,2px)}80%{transform:translate(-1px,1px)}}`}</style>
+  <style>{`@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;800&family=Hanken+Grotesk:wght@400;500;600&family=Space+Mono&display=swap'); *{box-sizing:border-box;-webkit-tap-highlight-color:transparent} button{font-family:inherit;color:inherit;touch-action:manipulation;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none} select{outline:none} .petri-board-cells{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none} .petri-noscroll{scrollbar-width:none;-ms-overflow-style:none}
+ .petri-thin{scrollbar-width:thin;scrollbar-color:#3a4150 transparent}
+ .petri-thin::-webkit-scrollbar{width:6px}
+ .petri-thin::-webkit-scrollbar-track{background:transparent}
+ .petri-thin::-webkit-scrollbar-thumb{background:#3a4150;border-radius:3px}
+ .petri-thin::-webkit-scrollbar-thumb:hover{background:#505a6d} .petri-noscroll::-webkit-scrollbar{display:none;width:0;height:0} @media (max-width:700px){select{font-size:16px !important;min-height:40px}} @keyframes evglow{0%{opacity:.95}65%{opacity:.5}100%{opacity:0}} @keyframes evchip{0%{opacity:0;transform:translateY(-4px)}12%{opacity:1;transform:translateY(0)}75%{opacity:1}100%{opacity:0}} @keyframes quakeShake{0%,100%{transform:translate(0,0)}15%{transform:translate(-3px,2px)}30%{transform:translate(3px,-2px)}45%{transform:translate(-3px,-1px)}60%{transform:translate(2px,2px)}80%{transform:translate(-1px,1px)}}`}</style>
   <div style={{maxWidth:wide?940:700,margin:"0 auto"}}>{children}</div></div>);}
 function Title({small}){const T=THEME;return(<div style={{textAlign:small?"left":"center",marginBottom:small?0:18}}>
   <div style={{fontFamily:T.display,fontWeight:800,fontSize:small?22:42,letterSpacing:small?2:5,color:T.ink}}>PETRI</div>
@@ -634,6 +687,28 @@ function App(){
     {kind:"human",civ:"botswana",brain:"normal",power:"seed",team:0},
     {kind:"human",civ:"tonga",brain:"normal",power:"seed",team:0}]);
   const [teamMode,setTeamMode]=useState(false); // when on, seats share a team (see teamOf/matesOf)
+  const [civPick,setCivPick]=useState(null);    // which dropdown is open: "<seat>:<field>", or null
+  // Any click outside an open dropdown closes it, the way a real menu behaves.
+  useEffect(()=>{if(civPick===null)return;const h=()=>setCivPick(null);
+    window.addEventListener("click",h);return()=>window.removeEventListener("click",h);},[civPick]);
+  // One styled dropdown for every setup field, so nothing falls back to the
+  // browser's native select (which we can't theme, scrollbar included).
+  function Drop({id,value,opts,onPick,width,menuW}){const open=civPick===id;const cur=opts.find(o=>o.v===value)||opts[0];
+    return <span style={{position:"relative",display:"inline-block"}}>
+      <button onClick={e=>{e.stopPropagation();setCivPick(open?null:id);}} style={{...inputSm,cursor:"pointer",display:"flex",alignItems:"center",gap:6,textAlign:"left",width:width||110}}>
+        {cur&&cur.dot&&<span style={{width:9,height:9,borderRadius:2,flexShrink:0,background:cur.dot}}/>}
+        <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{cur?cur.label:""}</span>
+        <span style={{color:T.muted,fontSize:9,flexShrink:0}}>▼</span></button>
+      {open&&<div onClick={e=>e.stopPropagation()} className="petri-thin" style={{position:"absolute",top:"calc(100% + 4px)",left:0,zIndex:30,width:menuW||width||150,maxHeight:230,overflowY:"auto",background:T.panel,border:`1px solid ${T.line}`,borderRadius:8,padding:4,boxShadow:"0 10px 30px rgba(0,0,0,.55)"}}>
+        {opts.map(o=>{const on=o.v===value;
+          return <button key={String(o.v)} onClick={()=>{onPick(o.v);setCivPick(null);}} style={{display:"flex",alignItems:"center",gap:7,width:"100%",padding:"6px 7px",borderRadius:6,cursor:"pointer",border:"none",background:on?shade(o.dot||T.accent,-0.68):"transparent",textAlign:"left"}}>
+            {o.dot&&<span style={{width:9,height:9,borderRadius:2,flexShrink:0,background:o.dot}}/>}
+            <span style={{minWidth:0,flex:1}}>
+              <span style={{display:"block",fontSize:11.5,fontWeight:on?700:500,color:T.ink,whiteSpace:"nowrap"}}>{o.label}</span>
+              {o.sub&&<span style={{display:"block",fontFamily:T.mono,fontSize:8.5,color:T.muted,whiteSpace:"nowrap"}}>{o.sub}</span>}</span>
+          </button>;})}
+      </div>}
+    </span>;}
   // ---- Live board (rebuilt by startGame; mutated only via cloneB copies) ----
   const [board,setBoard]=useState(()=>buildMap("open").board);       // 2D grid: 0 empty, -1 wall, -2 void, >0 seat color
   const [specials,setSpecials]=useState(()=>buildMap("open").specials); // Map "r,c" -> tile type (bomb/wall/teleport/passage)
@@ -758,6 +833,14 @@ function App(){
   const [siegeMode,setSiegeMode]=useState(false); // Malta: tapping besiegers to wall them
   const [siegePick,setSiegePick]=useState([]);    // besieger squares tapped so far
   const [forts,setForts]=useState([]);            // Malta's ramparts: [{seat, cells}] — walls that score for their builder
+  const [towers,setTowers]=useState([]);          // Spain's Castells: [{seat, cells}] — squares that count twice
+  const [castellArmed,setCastellArmed]=useState(false); // Spain: next piece raises a tower
+  const [eruptPick,setEruptPick]=useState(false); // Nicaragua: tapping one of your pieces to erupt
+  const [potArmed,setPotArmed]=useState(false); // USA: taking the last shape played
+  const [lastShape,setLastShape]=useState(null);  // the piece id most recently played by anyone
+  const [eruptScore,setEruptScore]=useState({}); // Nicaragua: a point banked for every rival piece buried
+  const [scribe,setScribe]=useState(null);      // Lebanon's inscription: {seat, lastSize, letters}
+  const [wordDone,setWordDone]=useState({});   // seats that finished the whole inscription
   const [ruil,setRuil]=useState(null); // Netherlands: {give} while choosing a rival piece to take
   const [reserved,setReserved]=useState(null);
   // Miner is now a once-per-game armable (like Carnival): mineAvail means the
@@ -772,7 +855,7 @@ function App(){
   // The keys of a seat's own ramparts, which act as its colour for placement.
   const fortSet=useCallback(s=>{const k=new Set();for(const f of forts)if(f.seat===s)for(const [r,c] of f.cells)k.add(r+","+c);return k;},[forts]);
   const humanX=()=>{const pw2=seats[turn-1]?.power;
-    return{edge:armed&&pw2==="bridge",og:armed&&pw2==="overgrow",anyC:carnArmed,mine:minerArmed,asc:ascentArmed,blk:blockedFor(turn),mates:matesOf(turn),forts:fortSet(turn)};};
+    return{edge:armed&&pw2==="bridge",og:armed&&pw2==="overgrow",anyC:carnArmed,mine:minerArmed,asc:ascentArmed,tower:castellArmed,blk:blockedFor(turn),mates:matesOf(turn),forts:fortSet(turn)};};
   
 
   const live=useRef({});live.current={board,specials,used,turn,count,done,isFirst,startOf,copies,charges,infect,starts,reserved,traitUsed};
@@ -780,12 +863,12 @@ function App(){
 
   function startGame(){const {board:b,specials:sp,starts:st,copies:cp}=buildMap(mapId);
     const pw=opts.powers,tr=opts.traits;
-    const u={},l={},ch={};for(let s=1;s<=count;s++){u[s]={};l[s]=null;ch[s]=pw?POWERS[seats[s-1].power].charges+(tr&&seats[s-1].civ==="colombia"?1:0):0;}
+    const u={},l={},ch={};for(let s=1;s<=count;s++){u[s]={};l[s]=null;ch[s]=pw?POWERS[seats[s-1].power].charges:0;}
     if(tr)for(let s=1;s<=count;s++)if(seats[s-1].civ==="lithuania"){const BH=b.length,BW=b[0].length;const [sr,sc]=st[s-1];const dr=sr<BH/2?1:-1,dc=sc<BW/2?1:-1,d=Math.round(BH*0.3);
       const pr=sr+dr*d,pc=sc+dc*d;let done2=false;for(let rad=0;rad<6&&!done2;rad++)for(let a=pr-rad;a<=pr+rad&&!done2;a++)for(let e=pc-rad;e<=pc+rad&&!done2;e++)if(a>=0&&a<BH&&e>=0&&e<BW&&b[a][e]===0){b[a][e]=s;done2=true;}}
     setBoard(b);setSpecials(sp);setStarts(st);setCopies(cp);setUsed(u);setLast(l);setCharges(ch);setDone(new Set());
     setScheme(SCHEMES[0]);setPundo(null);setOverHidden(false);
-    setTraitUsed({});setCarnArmed(false);setBazaarPick(false);setMinerArmed(false);setAscentArmed(false);setLcArmed(false);setOkaArmed(false);setFloodPick([]);setFloods([]);setCaravan(null);setCaravanMode(false);setSiegeMode(false);setSiegePick([]);setForts([]);setRuil(null);setReserved(null);
+    setTraitUsed({});setCarnArmed(false);setBazaarPick(false);setMinerArmed(false);setAscentArmed(false);setLcArmed(false);setOkaArmed(false);setFloodPick([]);setFloods([]);setCaravan(null);setCaravanMode(false);setSiegeMode(false);setSiegePick([]);setForts([]);setTowers([]);setCastellArmed(false);setEruptPick(false);setPotArmed(false);setLastShape(null);setEruptScore({});setRuil(null);setReserved(null);
     setInfect(new Set());setEventFlash(null);clearTimeout(bannerT.current);evtClock.current=evtDelay(count);evtTurns.current=0;
     setTurn(1);setStep(0);setAskConcede(false);setSel(null);setSelId(null);setHover(null);setTent(null);setArmed(false);setTargeting(null);setOver(false);setToast("");setMobSheet(false);busy.current=false;
     zoomRef.current=1;panRef.current={x:0,y:0};setZoom(1);setPan({x:0,y:0});setScreen("game");}
@@ -893,6 +976,32 @@ function App(){
     if(P.target==="empty"&&t.picks.some(([a,b])=>a===r&&b===c))return;const picks=[...t.picks,[r,c]];
     if(picks.length>=t.need)applyPower(t.id,picks);else setTargeting({...t,picks});}
   function cellClick(r,c){if(over)return;
+    if(eruptPick){ // Nicaragua: pick one of your own played squares to erupt
+      const s=turn;
+      if(board[r][c]!==s){flash("Tap one of your own squares");return;}
+      const grp=pieceGroupAt(board,r,c,s); // the connected piece that square belongs to
+      if(!grp.length)return;
+      const nb=cloneB(live.current.board);
+      // Momotombo: the piece erupts and tears into every rival piece it touches,
+      // taking half of each (rounded down) rather than erasing them whole — a
+      // volcano scars its neighbours, it doesn't delete them.
+      const mt=matesOf(s);const seen=new Set();let hitPieces=0,lost=0;
+      for(const [a,b] of grp)for(const [dr,dc] of [...ORTH,...DIAG]){const y=a+dr,x=b+dc;
+        if(!inB(y,x,nb.length,nb[0].length))continue;const v=nb[y][x];
+        if(v>0&&v!==s&&!mt.has(v)&&!seen.has(y+","+x)){
+          const vg=pieceGroupAt(nb,y,x,v);if(!vg.length)continue;
+          for(const [q,w2] of vg)seen.add(q+","+w2);          // this piece is now accounted for
+          const take=Math.floor(vg.length/2);if(!take)continue; // a lone square rides it out
+          const d2=([r2,c2])=>Math.min(...grp.map(([g1,g2])=>Math.max(Math.abs(r2-g1),Math.abs(c2-g2))));
+          vg.sort((m1,m2)=>d2(m1)-d2(m2));                     // the closest squares to the blast go first
+          for(let k=0;k<take;k++){const [q,w2]=vg[k];nb[q][w2]=0;lost++;}
+          hitPieces++;}}
+      for(const [a,b] of grp)nb[a][b]=0;
+      setBoard(nb);setTraitUsed(t=>({...t,[s]:true}));setEruptPick(false);
+      if(hitPieces)setEruptScore(e=>({...e,[s]:(e[s]||0)+hitPieces}));
+      flash(hitPieces?`Momotombo erupts! ${hitPieces} rival piece${hitPieces===1?"":"s"} torn into, ${lost} square${lost===1?"":"s"} lost, +${hitPieces}.`:"Momotombo erupts, but nothing rival was close enough to scar.");
+      vib([20,50,20]);
+      return;}
     if(siegeMode){ // Malta: tap enemy squares, chaining outward, to break and fortify them
       if(siegePick.some(([a,b])=>a===r&&b===c)){setSiegePick(p=>p.filter(([a,b])=>!(a===r&&b===c)));return;}
       const tg=siegeTargets(board,turn,matesOf(turn),siegePick);
@@ -938,9 +1047,12 @@ function App(){
     const cells=anchorWith(sel,r,c);vib(6);
     setTent({cells,id:tent.id,r,c,ok:valid(board,cells,turn,isFirst(turn),startOf(turn),humanX())});}
 
-  function commit(cells,id,seat){const nb=cloneB(live.current.board);for(const [r,c] of cells)nb[r][c]=seat;
+  function commit(cells,id,seat,free){const nb=cloneB(live.current.board);for(const [r,c] of cells)nb[r][c]=seat;
     const sp=new Map(live.current.specials);const {shield,burst,bastion}=traitSets(seats,opts.traits?count:0);
     const msg=applySpecials(cells,seat,nb,sp,{shield,burst,bastion,mates:matesOf(seat)});setPundo(null);
+    if(oTraits&&civOf(seat)==="colombia"){ // Biodiversity: every third piece, life spreads on its own
+      const n=Object.values(live.current.used[seat]||{}).reduce((a,b)=>a+b,0)+1;
+      if(n%3===0){const sp2=bioSprout(nb,seat,sp);if(sp2){nb[sp2[0]][sp2[1]]=seat;msg.push({type:"bio",text:"Biodiversity, a new square sprouts on its own"});}}}
     if(oTraits&&civOf(seat)==="mexico"&&(live.current.traitUsed[seat]||0)<2){ // Chinampas: reclaim a freshly-sealed pocket, twice per game
       const claim=chinampasClaim(nb,cells);
       if(claim.length){for(const [r,c] of claim)nb[r][c]=seat;setTraitUsed(t=>({...t,[seat]:(t[seat]||0)+1}));
@@ -949,10 +1061,22 @@ function App(){
       nb[caravan.r][caravan.c]=seat;const bonus=Math.max(3,Math.min(11,caravan.dist));
       const claim=floodClaim(nb,[[caravan.r,caravan.c]],seat,bonus);for(const [r,c] of claim)nb[r][c]=seat;
       msg.push({type:"caravan",text:`Silk Road! The caravan arrives, ${claim.length+1} squares claimed for the long haul`});setCaravan(null);}
-    setBoard(nb);setSpecials(sp);setUsed(u=>({...u,[seat]:{...u[seat],[id]:((u[seat]||{})[id]||0)+1}}));setLast(l=>({...l,[seat]:id}));if(msg.length)flash(msg.map(o=>o.text).join(" · "));}
+    if(oTraits&&scribe&&scribe.seat===seat){ // Byblos: the first piece sets the bar, every larger one is a letter
+      const sz=cells.length;
+      if(scribe.lastSize===null){setScribe({seat,lastSize:sz,letters:0});
+        msg.push({type:"byblos",text:`The baseline is cut at ${sz}. Every piece after this must be larger.`});}
+      else if(sz>scribe.lastSize){const n=scribe.letters+1;setScribe({seat,lastSize:sz,letters:n});
+        setWordDone(w=>({...w,[seat]:(w[seat]||0)+1}));   // each letter banks +2 the moment it is cut
+        msg.push({type:"byblos",text:`Letter ${n} cut, +2 (the next must beat ${sz})`});}
+      else{setScribe(null);
+        msg.push({type:"byblos",text:scribe.letters?`The inscription closes at ${scribe.letters} letter${scribe.letters===1?"":"s"}.`:"The inscription closes unwritten."});}}
+    setBoard(nb);setSpecials(sp);setLastShape(id); // remember the phrase, so America can answer it
+    if(!free)setUsed(u=>({...u,[seat]:{...u[seat],[id]:((u[seat]||{})[id]||0)+1}}));
+    setLast(l=>({...l,[seat]:id}));if(msg.length)flash(msg.map(o=>o.text).join(" · "));}
   function submit(){if(!tent||busy.current)return;const s=turn,id=tent.id;
     if(tent.ok===false){flash("That spot is illegal. The piece must link to your color corner to corner.");vib([12,40,12]);return;}
-    if((used[s]?.[id]||0)>=copies){setTent(null);setSel(null);setSelId(null);flash("You have no more of that piece");return;}
+    const freePot=potArmed&&!traitUsed[s]; // an answered phrase costs no piece from the tray
+    if(!freePot&&(used[s]?.[id]||0)>=copies){setTent(null);setSel(null);setSelId(null);flash("You have no more of that piece");return;}
     busy.current=true;
     if(armed){ // Overgrow only bills you if the piece actually ate a rival square; Bridge always bills on placement
       const overgrow=seats[s-1]?.power==="overgrow";
@@ -962,15 +1086,17 @@ function App(){
     if(carnArmed){setTraitUsed(t=>({...t,[s]:true}));setCarnArmed(false);}
     if(minerArmed){setTraitUsed(t=>({...t,[s]:true}));setMinerArmed(false);}
     if(ascentArmed){setTraitUsed(t=>({...t,[s]:true}));setAscentArmed(false);}
+    if(castellArmed){setTraitUsed(t=>({...t,[s]:true}));setCastellArmed(false);setTowers(tw=>[...tw,{seat:s,cells:tent.cells}]);}
+    if(freePot){setTraitUsed(t=>({...t,[s]:true}));setPotArmed(false);}
     const doLC=lcArmed&&!traitUsed[s];
     if(doLC){setTraitUsed(t=>({...t,[s]:true}));setLcArmed(false);}
     const placed2=tent.cells;
-    commit(placed2,id,s);setTent(null);setSel(null);setSelId(null);vib(18);
+    commit(placed2,id,s,freePot);setTent(null);setSel(null);setSelId(null);vib(18);
     if(doLC){const nb=cloneB(live.current.board);for(const [r,c] of placed2)nb[r][c]=s;
       const uu={...(used[s]||{}),[id]:((used[s]?.[id]||0)+1)};
       if(anyMove(nb,uu,s,false,startOf(s),copies,{blk:blockedFor(s),mates:matesOf(s)})){flash("Long Count! The cycle turns, place one more piece.");busy.current=false;return;}}
     advance(s);setTimeout(()=>{busy.current=false;},80);}
-  function concede(){const s=turn;const nd=new Set(done);nd.add(s);setDone(nd);setSel(null);setSelId(null);setTent(null);setTargeting(null);setArmed(false);setCarnArmed(false);setBazaarPick(false);setMinerArmed(false);setAscentArmed(false);setLcArmed(false);setOkaArmed(false);setFloodPick([]);setCaravanMode(false);setSiegeMode(false);setSiegePick([]);setRuil(null);flash(`${CIVS[civOf(s)].name} bends the knee.`);advance(s,nd);}
+  function concede(){const s=turn;const nd=new Set(done);nd.add(s);setDone(nd);setSel(null);setSelId(null);setTent(null);setTargeting(null);setArmed(false);setCarnArmed(false);setBazaarPick(false);setMinerArmed(false);setAscentArmed(false);setLcArmed(false);setOkaArmed(false);setFloodPick([]);setCaravanMode(false);setSiegeMode(false);setSiegePick([]);setCastellArmed(false);setEruptPick(false);setPotArmed(false);setRuil(null);flash(`${CIVS[civOf(s)].name} bends the knee.`);advance(s,nd);}
 
   function advance(from,doneSet){setTimeout(()=>{const L=live.current,n=L.count,dn=doneSet||L.done;let fired=false;
     if(oEvents&&!over){try{
@@ -984,7 +1110,9 @@ function App(){
       const blk2=LL.reserved&&LL.reserved.seat!==cand&&!dn.has(LL.reserved.seat)?new Set([LL.reserved.k]):null;
       if(anyMove(LL.board,LL.used[cand]||{},cand,LL.isFirst(cand),LL.startOf(cand),LL.copies,{mine:mineAvail(cand),blk:blk2})){
         if(LL.reserved&&(LL.reserved.seat===cand||dn.has(LL.reserved.seat)))setReserved(null); // flag expires when it's your turn again (or you're out)
-        setTurn(cand);setStep(x=>x+1);setArmed(false);setCarnArmed(false);setBazaarPick(false);setMinerArmed(false);setAscentArmed(false);setLcArmed(false);setOkaArmed(false);setFloodPick([]);setCaravanMode(false);setSiegeMode(false);setSiegePick([]);setRuil(null);setTargeting(null);return;}}
+        setTurn(cand);setStep(x=>x+1);
+        setSel(null);setSelId(null);setTent(null);selRef.current=null; // a new turn always starts with a clean hand: never inherit the last player's piece
+        setArmed(false);setCarnArmed(false);setBazaarPick(false);setMinerArmed(false);setAscentArmed(false);setLcArmed(false);setOkaArmed(false);setFloodPick([]);setCaravanMode(false);setSiegeMode(false);setSiegePick([]);setCastellArmed(false);setEruptPick(false);setPotArmed(false);setRuil(null);setTargeting(null);return;}}
       setOverSeed(Math.random());setOver(true);};
     if(fired)setTimeout(pick,1050);else pick();},0);}
 
@@ -997,7 +1125,7 @@ function App(){
     // Base rule bends for this seat: just the rival Reserve flag. Chile's Miner
     // is now a once-per-game rescue applied below, not a passive every turn.
     const bx={blk:L.reserved&&L.reserved.seat!==s?new Set([L.reserved.k]):null,mates:matesOf(s),
-      car:(caravan&&caravan.seat===s)?{r:caravan.r,c:caravan.c}:null,forts:fortSet(s)}; // its own caravan, if one is out there waiting
+      car:(caravan&&caravan.seat===s)?{r:caravan.r,c:caravan.c}:null,forts:fortSet(s)}; // its caravan, if one is out there waiting
     // Twin-dish maps: hand the mover the Vent locations so it fights toward them
     // and grabs one to open the far dish instead of ignoring them.
     let vk=null;for(const [k,t] of L.specials)if(t==="passage"){(vk=vk||new Set()).add(k);}
@@ -1062,6 +1190,9 @@ function App(){
     const spMsg=applySpecials(mv.cells,s,nb,sp,{shield,burst,bastion,mates:matesOf(s)});
     const breach=spMsg.find(m=>m.type==="passage");if(breach)flash(`${CIVS[civOf(s)].name} opens a Passage, a spore crosses to the far dish.`);
     // Mexico's Chinampas: auto-reclaim a freshly-sealed pocket, twice per game.
+    if(oTraits&&civOf(s)==="colombia"){ // Biodiversity: every third piece, life spreads on its own
+      const n=Object.values(myUsed).reduce((a,b)=>a+b,0)+1;
+      if(n%3===0){const sp2=bioSprout(nb,s,sp);if(sp2){nb[sp2[0]][sp2[1]]=s;flash(`${CIVS[civOf(s)].name} Biodiversity spreads, a new square sprouts.`);}}}
     if(oTraits&&civOf(s)==="mexico"&&(L.traitUsed[s]||0)<2){const claim=chinampasClaim(nb,mv.cells);
       if(claim.length){for(const [r,c] of claim)nb[r][c]=s;setTraitUsed(t=>({...t,[s]:(t[s]||0)+1}));
         flash(`${CIVS[civOf(s)].name} builds Chinampas, reclaiming ${claim.length} sealed cell${claim.length>1?"s":""}.`);}}
@@ -1146,7 +1277,7 @@ function App(){
   },[turn,step,screen,over]); // eslint-disable-line
   useEffect(()=>{if(over)vib([20,40,20,40,60]);},[over]); // eslint-disable-line
 
-  const scoreOf=s=>{let sq=0;for(let r=0;r<N;r++)for(let c=0;c<BW;c++)if(board[r][c]===s)sq++;if(caravan&&caravan.seat===s)sq++;for(const f of floods)if(f.seat===s)sq+=f.cells.length;for(const f of forts)if(f.seat===s)sq+=f.cells.length;const u=used[s]||{};const tot=Object.values(u).reduce((a,b)=>a+b,0);const all=tot===PIECE_IDS.length*copies;let b=0;if(all){b+=15;if(last[s]==="mono")b+=5;}
+  const scoreOf=s=>{let sq=0;for(let r=0;r<N;r++)for(let c=0;c<BW;c++)if(board[r][c]===s)sq++;if(caravan&&caravan.seat===s)sq++;for(const f of floods)if(f.seat===s)sq+=f.cells.length;for(const f of forts)if(f.seat===s)sq+=f.cells.length;for(const t of towers)if(t.seat===s)sq+=t.cells.filter(([r,c])=>board[r][c]===s).length;sq+=eruptScore[s]||0;sq+=(wordDone[s]||0)*2;const u=used[s]||{};const tot=Object.values(u).reduce((a,b)=>a+b,0);const all=tot===PIECE_IDS.length*copies;let b=0;if(all){b+=15;if(last[s]==="mono")b+=5;}
     if(oTraits&&civOf(s)==="tonga"){let pent=0;for(const id of Object.keys(u))if(PSIZE[id]===5)pent+=u[id];b+=pent;}
     if(oTraits&&civOf(s)==="dominican")b+=Math.floor(tot/4);
     if(oTraits&&civOf(s)==="senegal"){let lng=0;for(const id of Object.keys(u))if(PLONG.has(id))lng+=u[id];b+=lng;}
@@ -1180,6 +1311,43 @@ function App(){
       </button>
     </div></div>;
 
+  // Safety net: a selection must always point at a piece you actually still hold.
+  // Trades, Bazaar costs and turn handoffs can all retire the piece under your
+  // hand, so rather than patch each one, drop any selection that goes stale.
+  useEffect(()=>{if(selId!=null&&(used[turn]?.[selId]||0)>=copies){setSel(null);setSelId(null);setTent(null);selRef.current=null;}},[used,turn,selId,copies]);
+  // Lebanon's Byblos Alphabet: start an inscription. Every piece after this must be
+  // larger than the last; each one is a letter worth +2, and a smaller piece ends it.
+  function toggleDye(){if(traitUsed[turn]||!curHuman()||over)return;if(placed(turn)<1){flash("Place your first piece before using an ability.");return;}
+    setScribe({seat:turn,lastSize:null,letters:0});setTraitUsed(t=>({...t,[turn]:true}));
+    flash("The inscription begins. Your next piece cuts the opening letter, and every letter after it must be larger, +2 each.");vib(12);}
+  // Spain's Castells: arm, then place a piece standing entirely on your own squares.
+  function toggleCastell(){if(traitUsed[turn]||!curHuman()||over)return;if(placed(turn)<1){flash("Place your first piece before using an ability.");return;}
+    if(castellArmed){setCastellArmed(false);flash("Castells off");return;}
+    setArmed(false);setTargeting(null);setCastellArmed(true);
+    flash("Castells! Place a piece standing entirely on your own squares, it counts twice.");}
+  // Nicaragua's Momotombo: tap one of your own pieces; it erupts, taking rivals with it.
+  function toggleErupt(){if(traitUsed[turn]||!curHuman()||over)return;if(placed(turn)<1){flash("Place your first piece before using an ability.");return;}
+    if(eruptPick){setEruptPick(false);flash("Momotombo off");return;}
+    setArmed(false);setTargeting(null);setEruptPick(true);
+    flash("Momotombo, tap one of your own squares. That piece erupts and takes its rival neighbours with it.");}
+  // USA's Melting Pot: take the shape a rival just played and make it your own, free.
+  function toggleMeltingPot(){if(traitUsed[turn]||!curHuman()||over)return;if(placed(turn)<1){flash("Place your first piece before using an ability.");return;}
+    if(potArmed){setPotArmed(false);flash("Melting Pot off");return;}
+    if(!lastShape||!PIECES[lastShape]){flash("Nothing to take yet, wait for a rival to play a shape.");return;}
+    setArmed(false);setTargeting(null);setPotArmed(true);
+    const o=norm(PIECES[lastShape]);setSel(o);selRef.current=o;setSelId(lastShape);
+    if(mob){const [r,c]=initialDrop(o);const tc=anchorWith(o,r,c);setTent({cells:tc,id:lastShape,r,c,ok:valid(board,tc,turn,false,startOf(turn),humanX())});}
+    flash(`Melting Pot! Their ${lastShape} is yours now, free of charge.`);}
+  // Kenya's The Kick: the runner's surge from behind. Free squares scaled to how far it trails.
+  function useKick(){if(traitUsed[turn]||!curHuman()||over)return;if(placed(turn)<1){flash("Place your first piece before using an ability.");return;}
+    const s=turn,mine=scoreOf(s);let lead=mine;for(let i=1;i<=count;i++)if(i!==s&&!matesOf(s).has(i))lead=Math.max(lead,scoreOf(i));
+    const gap=lead-mine,n=Math.min(6,Math.floor(gap/4));
+    if(n<1){flash("The kick is for chasing, you are not behind enough to need it yet.");return;}
+    const nb=cloneB(live.current.board);let got=0;
+    for(let k=0;k<n;k++){const sp2=bioSprout(nb,s,specials);if(!sp2)break;nb[sp2[0]][sp2[1]]=s;got++;}
+    if(!got){flash("No open ground for the community to build on.");return;}
+    setBoard(nb);setTraitUsed(t=>({...t,[s]:true}));
+    flash(`The Kick! You surge from behind, ${got} free square${got>1?"s":""} gained.`);vib(14);}
   // Brazil's Carnival: arm/disarm; consumed on the next placement.
   function toggleCarnival(){if(traitUsed[turn]||!curHuman()||over)return;if(placed(turn)<1){flash("Place your first piece before using an ability.");return;}
     setCarnArmed(a=>!a);flash(carnArmed?"Carnival off":"Carnival! Your next piece may link off any color.");}
@@ -1311,11 +1479,11 @@ function App(){
             <div style={{display:"flex",gap:7,alignItems:"center",flexWrap:"wrap"}}>
               <span style={{width:20,height:20,borderRadius:5,background:col,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,color:"#0008"}}>{dup?GLYPHS[i%4]:""}</span>
               <b style={{minWidth:44,fontFamily:T.mono,fontSize:11.5}}>SEAT {i+1}</b>
-              <select value={st.kind} onChange={e=>upd(i,{kind:e.target.value})} style={inputSm}><option value="human">Human</option><option value="cpu">CPU</option></select>
-              <select value={st.civ} onChange={e=>upd(i,{civ:e.target.value})} style={inputSm}>{CIV_IDS.map(id=><option key={id} value={id}>{CIVS[id].name}</option>)}</select>
-              {st.kind==="cpu"&&<select value={st.brain} onChange={e=>upd(i,{brain:e.target.value})} style={inputSm}>{Object.keys(CPU_BRAINS).map(b=><option key={b} value={b}>{CPU_BRAINS[b].name}</option>)}</select>}
-              {opts.powers&&<select value={st.power} onChange={e=>upd(i,{power:e.target.value})} style={inputSm}>{POWER_IDS.map(p=><option key={p} value={p}>{POWERS[p].name}</option>)}</select>}
-              {teamMode&&<select value={st.team||0} onChange={e=>upd(i,{team:+e.target.value})} style={{...inputSm,borderColor:st.team?colorOf(i+1):T.line}}><option value={0}>Team —</option><option value={1}>Team 1</option><option value={2}>Team 2</option><option value={3}>Team 3</option></select>}
+              <Drop id={i+":kind"} value={st.kind} width={86} opts={[{v:"human",label:"Human"},{v:"cpu",label:"CPU"}]} onPick={v=>upd(i,{kind:v})}/>
+              <Drop id={i+":civ"} value={st.civ} width={118} menuW={190} opts={CIV_IDS.map(id=>({v:id,label:CIVS[id].name,sub:TRAIT[id][0],dot:CIVS[id].color}))} onPick={v=>upd(i,{civ:v})}/>
+              {st.kind==="cpu"&&<Drop id={i+":brain"} value={st.brain} width={104} menuW={150} opts={Object.keys(CPU_BRAINS).map(b=>({v:b,label:CPU_BRAINS[b].name}))} onPick={v=>upd(i,{brain:v})}/>}
+              {opts.powers&&<Drop id={i+":power"} value={st.power} width={104} menuW={180} opts={POWER_IDS.map(pw2=>({v:pw2,label:POWERS[pw2].name,sub:POWERS[pw2].trigger}))} onPick={v=>upd(i,{power:v})}/>}
+              {teamMode&&<Drop id={i+":team"} value={st.team||0} width={96} menuW={120} opts={[{v:0,label:"Team —"},{v:1,label:"Team 1",dot:TEAM_PASTEL[1]},{v:2,label:"Team 2",dot:TEAM_PASTEL[2]},{v:3,label:"Team 3",dot:TEAM_PASTEL[3]}]} onPick={v=>upd(i,{team:v})}/>}
             </div>
             {(opts.powers||opts.traits)&&<div style={{fontSize:11.5,marginTop:8,fontFamily:T.mono,lineHeight:1.6}}>
               {opts.powers&&<div style={{color:T.accent}}>◈ POWER, {POWERS[st.power].name} ({POWERS[st.power].charges} use{POWERS[st.power].charges>1?"s":""}): <span style={{color:T.muted}}>{POWERS[st.power].effect}</span></div>}
@@ -1348,7 +1516,7 @@ function App(){
       <button onClick={usePower} disabled={!usable} style={{...miniBtn,width:"100%",padding:"11px 12px",fontSize:12.5,opacity:usable?1:.4,borderColor:usable?T.accent:T.line,color:armed?"#0c0e12":T.ink,background:armed?T.accent:THEME.panel}}>
         {armed?"On (tap to cancel)":targeting?"Choosing target…":early?`Unlocks after ${POWER_MIN} pieces`:late?"Locked, too late now":ch>0?`Use, ${P.trigger}`:"No charges left"}</button>
     </div>;})():null;
-  const traitCardEl=(oTraits&&curHuman()&&!over&&["brazil","morocco","chile","nepal","netherlands","guatemala","botswana","kyrgyzstan","malta"].includes(civOf(cur)))?(()=>{
+  const traitCardEl=(oTraits&&curHuman()&&!over&&["brazil","morocco","chile","nepal","netherlands","guatemala","botswana","kyrgyzstan","malta","usa","spain","nicaragua","kenya","lebanon"].includes(civOf(cur)))?(()=>{
     const cv=civOf(cur);const spent=!!traitUsed[cur];
     const M={brazil:{tag:"CARNIVAL",on:carnArmed,toggle:toggleCarnival,desc:"Once per game: your next piece may link corner to corner off ANY color.",act:"Use, then place a piece",onLbl:"On (tap to cancel)"},
              chile:{tag:"MINER",on:minerArmed,toggle:toggleMiner,desc:"Once per game: your next piece may link corner to corner off the map's walls.",act:"Use, then place a piece",onLbl:"On (tap to cancel)"},
@@ -1357,6 +1525,11 @@ function App(){
              botswana:{tag:"OKAVANGO",on:okaArmed,toggle:toggleOkavango,desc:"Once per game: your next placement floods 5 open squares around your colony. They block everyone and score +5 for 3 turns, then vanish back to open ground.",act:"Use, then place a piece",onLbl:"On (tap to cancel)"},
              kyrgyzstan:{tag:"SILK ROAD",on:caravanMode,toggle:toggleSilkRoad,desc:`Once per game: drop a caravan on open ground at least ${CARAVAN_MIN} away. It scores +1; reach it with your colony and claim a haul that grows with the distance.`,act:"Use, then tap a far square",onLbl:"Choosing… (tap to cancel)"},
              malta:{tag:"THE GREAT SIEGE",on:siegeMode,toggle:toggleSiege,desc:`Once per game, when at least ${SIEGE_MIN} rival squares press your colony: break up to ${SIEGE_MAX} enemy squares, chaining outward from your colony or your breach. They become your ramparts, scoring +1 each, blocking everyone, and anchoring your growth like your own colour.`,act:"Use, then tap besiegers",onLbl:"Choosing… (tap to cancel)"},
+             lebanon:{tag:"BYBLOS ALPHABET",on:false,toggle:toggleDye,desc:"Once per game: begin an inscription. Your next piece cuts the opening letter and sets the size. Every letter after it must be larger, each worth +2. Play anything smaller and the writing closes for good.",act:"Use, begin writing",onLbl:"…"},
+             usa:{tag:"MELTING POT",on:potArmed,toggle:toggleMeltingPot,desc:"Once per game: take the shape a rival just played and make it yours, dropping that same shape free from your colony without spending a piece from your tray.",act:"Use, then place their shape",onLbl:"On (tap to cancel)"},
+             spain:{tag:"CASTELLS",on:castellArmed,toggle:toggleCastell,desc:"Once per game: raise a tower. Place a piece standing entirely on top of your own squares, and those squares count twice.",act:"Use, then place a piece",onLbl:"On (tap to cancel)"},
+             nicaragua:{tag:"MOMOTOMBO",on:eruptPick,toggle:toggleErupt,desc:"Once per game: one of your pieces erupts. It is destroyed, and every rival piece it touches loses half its squares (rounded down), scoring you +1 per piece scarred.",act:"Use, then tap your own square",onLbl:"Choosing… (tap to cancel)"},
+             kenya:{tag:"THE KICK",on:false,toggle:useKick,desc:"Once per game: kick for the line. Gain a free square for every 4 points you trail the leader by, up to 6. Nothing if you are already ahead.",act:"Use, kick for the line",onLbl:"…"},
              netherlands:{tag:"ORANJE",on:!!ruil,toggle:toggleRuil,desc:"Once per game: trade one of your unused pieces for any unused piece in a rival's tray (a Dutch Golden-Age barter).",act:"Use, then tap a piece to offer",onLbl:"Trading… (tap to cancel)"},
              morocco:{tag:"THE BAZAAR",on:bazaarPick,toggle:toggleBazaar,desc:"Once per game: reclaim a piece you've played, at the cost of your smallest unused piece.",act:"Use, then tap a played piece",onLbl:"Choosing… (tap to cancel)"}}[cv];
     const locked=placed(cur)<1;const caravanOut=cv==="kyrgyzstan"&&caravan&&caravan.seat===cur&&caravan.step===step;
@@ -1449,7 +1622,7 @@ function App(){
             if(okaArmed&&floodPick.some(([a,b])=>a===r&&b===c)){style={background:"#2c5769",backgroundImage:"linear-gradient(135deg,#3f7f96,#2b5464)",boxShadow:`inset 0 0 0 2px ${curCol}`};inner=<span style={{color:"#cdeaf4",fontSize:"0.82em",fontWeight:700}}>✕</span>;} // Okavango cells you've chosen
             if(siegeMode&&siegePick.some(([a,b])=>a===r&&b===c)){style={...style,boxShadow:`inset 0 0 0 2px ${T.accent}`};inner=<span style={{color:T.accent,fontSize:"0.8em",fontWeight:700}}>⛨</span>;} // Great Siege picks
             const ogArm=armed&&seats[turn-1]?.power==="overgrow"; // Overgrow: rival squares become drop targets too
-            const clickable=v!==-2&&((v===-4&&caravan&&caravan.seat===turn&&caravan.step===step&&curHuman())||(siegeMode?(v>0&&v!==turn&&siegeTargets(board,turn,matesOf(turn),siegePick).some(([a,b])=>a===r&&b===c)):(okaArmed?v===0:(caravanMode?v===0:(targeting||(sel&&(v===0||(ogArm&&v>0&&v!==turn)||ascentArmed)))))));
+            const clickable=v!==-2&&(eruptPick?(v===turn):((v===-4&&caravan&&caravan.seat===turn&&caravan.step===step&&curHuman())||(siegeMode?(v>0&&v!==turn&&siegeTargets(board,turn,matesOf(turn),siegePick).some(([a,b])=>a===r&&b===c)):(okaArmed?v===0:(caravanMode?v===0:(targeting||(sel&&(v===0||(castellArmed&&v===turn)||(ogArm&&v>0&&v!==turn)||ascentArmed))))))));
             return <div key={k} onMouseEnter={()=>cellEnter(r,c)} onClick={clickable?()=>cellClick(r,c):undefined} style={{position:"relative",borderRadius:2,display:"flex",alignItems:"center",justifyContent:"center",cursor:clickable?"pointer":"default",fontSize:cellPx,...style}}>{inner}</div>;}))}
         </div>
         </div>
@@ -1500,8 +1673,6 @@ function App(){
         </div>}
         {!mob&&powerCardEl}
         {!mob&&traitCardEl}
-        {oTraits&&!mob&&<div style={{...card,padding:"8px 12px",marginBottom:10,height:104,overflow:"hidden",lineHeight:1.45}}>
-          <span style={{fontFamily:T.mono,fontSize:10.5,color:colorOf(cur)}}>✦ {CIVS[civOf(cur)].name.toUpperCase()}</span> <span style={{fontSize:11.5,color:T.ink}}>{TRAIT[civOf(cur)][0]}</span> <span style={{fontSize:11,color:T.muted}}>,  {TRAIT[civOf(cur)][1]}</span></div>}
         <div style={{...card,padding:mob?"6px 6px 4px":12,opacity:curHuman()?1:.5}}>
           {!mob&&<div style={{fontFamily:T.mono,fontSize:11,color:T.muted,letterSpacing:1.5,marginBottom:9,display:"flex",justifyContent:"space-between"}}><span>{CIVS[civOf(cur)].name.toUpperCase()}, {curHuman()?"YOUR PIECES":scheme}</span></div>}
           {/* Mobile: one swipeable row (big pieces first) so the board stays on
