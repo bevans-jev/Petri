@@ -617,6 +617,109 @@ const CB_FLOOD="#7BAFD4",CB_CARAVAN="#F5E663";
 const CARAVAN_MIN=6;
 const LETTER_MIN=4; // Byblos: a Letter is cut this far out, so the word is a journey // Silk Road: a caravan must be dropped at least this far (Chebyshev) from all your pieces
 
+// ===== 8b. PROGRESSION & SAVE (localStorage) ================================
+// Per-device progress: stats, per-nation records, challenges, cosmetic unlocks.
+// Entirely additive: no rules, scoring, AI or board logic is touched. Every
+// storage call is wrapped, so a browser with storage blocked (private mode,
+// sandboxed iframe) simply doesn't persist instead of crashing the game.
+const SAVE_KEY="petri.save.v2";
+const BLANK_SAVE=Object.freeze({games:0,wins:0,streak:0,bestStreak:0,bestScore:0,
+  byCiv:{},byMap:{},byCount:{},allPieces:0,unlocked:[],claimed:[]});
+function loadSave(){try{const raw=window.localStorage.getItem(SAVE_KEY);if(!raw)return{...BLANK_SAVE};
+    const s=JSON.parse(raw);return{...BLANK_SAVE,...s,byCiv:{...(s.byCiv||{})},byMap:{...(s.byMap||{})},
+      byCount:{...(s.byCount||{})},unlocked:[...(s.unlocked||[])],claimed:[...(s.claimed||[])]};
+  }catch(e){return{...BLANK_SAVE};}}
+function writeSave(s){try{window.localStorage.setItem(SAVE_KEY,JSON.stringify(s));}catch(e){}return s;}
+function wipeSave(){try{window.localStorage.removeItem(SAVE_KEY);}catch(e){}return{...BLANK_SAVE};}
+// Fold one finished game into the save. res={civ,mapId,count,won,score,placedAll}
+function recordGame(save,res){const s={...save,byCiv:{...save.byCiv},byMap:{...save.byMap},
+    byCount:{...save.byCount},unlocked:[...save.unlocked],claimed:[...save.claimed]};
+  const bump=(o,k,w)=>{const c=o[k]||{p:0,w:0};o[k]={p:c.p+1,w:c.w+(w?1:0)};};
+  s.games++;
+  if(res.won){s.wins++;s.streak++;if(s.streak>s.bestStreak)s.bestStreak=s.streak;}else s.streak=0;
+  if(typeof res.score==="number"&&res.score>s.bestScore)s.bestScore=res.score;
+  if(res.placedAll)s.allPieces++;
+  if(res.civ)bump(s.byCiv,res.civ,res.won);
+  if(res.mapId)bump(s.byMap,res.mapId,res.won);
+  if(res.count)bump(s.byCount,String(res.count),res.won);
+  return s;}
+const civWins=s=>Object.values(s.byCiv).reduce((a,v)=>a+(v.w>0?1:0),0);
+const mapWins=s=>Object.values(s.byMap).reduce((a,v)=>a+(v.w>0?1:0),0);
+const winRate=s=>s.games?Math.round(s.wins/s.games*100):0;
+
+const CHALLENGES=[
+  {id:"first_game",name:"Inoculate",desc:"Finish your first game.",test:s=>s.games>=1,prog:s=>[Math.min(s.games,1),1]},
+  {id:"first_win",name:"Take Hold",desc:"Win a game.",test:s=>s.wins>=1,prog:s=>[Math.min(s.wins,1),1]},
+  {id:"win_3",name:"Spreading",desc:"Win 3 games.",test:s=>s.wins>=3,prog:s=>[Math.min(s.wins,3),3]},
+  {id:"win_10",name:"Established",desc:"Win 10 games.",test:s=>s.wins>=10,prog:s=>[Math.min(s.wins,10),10]},
+  {id:"civ_3",name:"Cosmopolitan",desc:"Win with 3 different nations.",test:s=>civWins(s)>=3,prog:s=>[Math.min(civWins(s),3),3]},
+  {id:"civ_10",name:"Diaspora",desc:"Win with 10 different nations.",test:s=>civWins(s)>=10,prog:s=>[Math.min(civWins(s),10),10]},
+  {id:"civ_all",name:"One World",desc:"Win with all 20 nations.",test:s=>civWins(s)>=20,prog:s=>[civWins(s),20]},
+  {id:"map_5",name:"Cartographer",desc:"Win on 5 different boards.",test:s=>mapWins(s)>=5,prog:s=>[Math.min(mapWins(s),5),5]},
+  {id:"full_tray",name:"Nothing Wasted",desc:"Place all of your pieces in a game.",test:s=>s.allPieces>=1,prog:s=>[Math.min(s.allPieces,1),1]},
+  {id:"streak_3",name:"Momentum",desc:"Win 3 games in a row.",test:s=>s.bestStreak>=3,prog:s=>[Math.min(s.bestStreak,3),3]},
+  {id:"streak_5",name:"Unchecked Growth",desc:"Win 5 games in a row.",test:s=>s.bestStreak>=5,prog:s=>[Math.min(s.bestStreak,5),5]},
+  {id:"score_90",name:"Saturation",desc:"Score 90 or more in a single game.",test:s=>s.bestScore>=90,prog:s=>[Math.min(s.bestScore,90),90]},
+  {id:"four_player",name:"Crowded Dish",desc:"Win a 4-player game.",test:s=>(s.byCount["4"]||{w:0}).w>=1,prog:s=>[Math.min((s.byCount["4"]||{w:0}).w,1),1]},
+  {id:"veteran_25",name:"Old Culture",desc:"Play 25 games.",test:s=>s.games>=25,prog:s=>[Math.min(s.games,25),25]},
+];
+const challengeDone=(s,c)=>!!c&&(s.unlocked.includes(c.id)||c.test(s));
+// Cosmetics not listed here are free from the start.
+const THEME_LOCKS=Object.freeze({dusk:"first_win",midnight:"win_3",moss:"civ_3",rose:"streak_3"});
+const TEX_LOCKS=Object.freeze({outline:"first_win",foil:"win_10",colony:"civ_3",weave:"map_5",seamless:"civ_10"});
+const chById=id=>CHALLENGES.find(c=>c.id===id);
+const isThemeLocked=(save,id)=>!!THEME_LOCKS[id]&&!challengeDone(save,chById(THEME_LOCKS[id]));
+const isTexLocked=(save,id)=>!!TEX_LOCKS[id]&&!challengeDone(save,chById(TEX_LOCKS[id]));
+const lockHint=(id,map)=>{const c=chById(map[id]);return c?c.desc:"Locked";};
+// Returns [updatedSave, newlyCompleted[]] so the UI can toast fresh unlocks once.
+function harvestUnlocks(save){const fresh=CHALLENGES.filter(c=>!save.claimed.includes(c.id)&&c.test(save));
+  if(!fresh.length)return[save,[]];
+  return[{...save,unlocked:[...new Set([...save.unlocked,...fresh.map(c=>c.id)])],
+    claimed:[...new Set([...save.claimed,...fresh.map(c=>c.id)])]},fresh];}
+
+function Progress({save,onReset}){const T=THEME;
+  const Stat=({k,v})=>(<div style={{...card,padding:"10px 12px",textAlign:"center",flex:"1 1 84px",minWidth:0}}>
+    <div style={{fontFamily:T.display,fontWeight:800,fontSize:22}}>{v}</div>
+    <div style={{fontFamily:T.mono,fontSize:9.5,color:T.muted,letterSpacing:1,marginTop:2}}>{k}</div></div>);
+  const H=({children})=>(<div style={{fontFamily:T.display,fontWeight:700,fontSize:15,margin:"20px 0 9px"}}>{children}</div>);
+  const wonCivs=CIV_IDS.filter(id=>(save.byCiv[id]||{w:0}).w>0).length;
+  return(<div>
+    <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:4}}>
+      <Stat k="PLAYED" v={save.games}/><Stat k="WON" v={save.wins}/><Stat k="WIN %" v={winRate(save)+"%"}/>
+      <Stat k="STREAK" v={save.streak}/><Stat k="BEST" v={save.bestScore}/></div>
+    <H>Nations · {wonCivs}/20 won with</H>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(148px,1fr))",gap:7}}>
+      {CIV_IDS.map(id=>{const r=save.byCiv[id]||{p:0,w:0};const won=r.w>0;
+        return(<div key={id} style={{...card,padding:"7px 9px",display:"flex",alignItems:"center",gap:8,
+          borderColor:won?CIVS[id].color:T.line,opacity:r.p?1:.45}}>
+          <span style={{width:11,height:11,borderRadius:3,flexShrink:0,background:CIVS[id].color}}/>
+          <span style={{flex:1,minWidth:0,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{CIVS[id].name}</span>
+          <span style={{fontFamily:T.mono,fontSize:10.5,color:won?T.ink:T.muted}}>{r.w}/{r.p}</span></div>);})}</div>
+    <H>Challenges</H>
+    <div style={{display:"grid",gap:7}}>
+      {CHALLENGES.map(c=>{const done=challengeDone(save,c);const pr=c.prog(save);const d=pr[0],t=pr[1];
+        const pct=Math.max(0,Math.min(100,Math.round(d/t*100)));
+        return(<div key={c.id} style={{...card,padding:"9px 12px",borderColor:done?T.accent:T.line,opacity:done?1:.82}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:10}}>
+            <b style={{fontSize:13,color:done?T.ink:T.muted}}>{done?"✓ ":""}{c.name}</b>
+            <span style={{fontFamily:T.mono,fontSize:10.5,color:T.muted,flexShrink:0}}>{d}/{t}</span></div>
+          <div style={{fontSize:11.5,color:T.muted,marginTop:2,lineHeight:1.4}}>{c.desc}</div>
+          {!done&&<div style={{height:3,borderRadius:2,background:T.line,marginTop:7,overflow:"hidden"}}>
+            <div style={{width:pct+"%",height:"100%",background:T.accent,opacity:.7}}/></div>}</div>);})}</div>
+    <H>Boards played</H>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(148px,1fr))",gap:7}}>
+      {MAP_IDS.map(id=>{const r=save.byMap[id]||{p:0,w:0};
+        return(<div key={id} style={{...card,padding:"7px 9px",display:"flex",justifyContent:"space-between",gap:8,
+          opacity:r.p?1:.4,borderColor:r.w>0?T.accent:T.line}}>
+          <span style={{fontSize:12,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{MAPS[id].name}</span>
+          <span style={{fontFamily:T.mono,fontSize:10.5,color:T.muted,flexShrink:0}}>{r.w}/{r.p}</span></div>);})}</div>
+    <div style={{marginTop:24,paddingTop:14,borderTop:`1px solid ${T.line}`}}>
+      <div style={{fontSize:11.5,color:T.muted,lineHeight:1.5,marginBottom:9}}>
+        Progress is saved on this device only. Clearing your browser data, or opening the game
+        on another phone or computer, will start you fresh.</div>
+      <button onClick={onReset} style={{...ghostBtn,color:"#c5a37a",borderColor:"#3a3324"}}>reset all progress</button></div>
+  </div>);}
+
 // ===== 9. SHARED UI COMPONENTS =============================================
 function Shell({children,wide,theme}){const th=theme||THEMES.dark;
   const vars={"--bg":th.bg,"--panel":th.panel,"--line":th.line,"--grid":th.grid,"--cell":th.cell,"--wall":th.wall,"--wallH":th.wallH,"--ink":th.ink,"--muted":th.muted,"--accent":th.accent,"--btnInk":th.btnInk};
@@ -677,7 +780,9 @@ function Pedia(){const T=THEME;
 // ===== 10. APP =============================================================
 function App(){
   // ---- Navigation & pre-game setup (chosen on the home/setup screens) ----
-  const [screen,setScreen]=useState("home");   // "home" | "setup" | "game"
+  const [screen,setScreen]=useState("home");   // "home" | "setup" | "game" | "progress"
+  const [save,setSave]=useState(loadSave);     // per-device progression (see section 8b)
+  const savedGame=useRef(null);                // guards against double-recording one result
   const [mode,setMode]=useState("standard");
   const [mapId,setMapId]=useState("open");      // key into MAPS
   const [count,setCount]=useState(2);           // number of seats in play (2-4)
@@ -1282,6 +1387,25 @@ function App(){
     if(oTraits&&civOf(s)==="dominican")b+=Math.floor(tot/4);
     if(oTraits&&civOf(s)==="senegal"){let lng=0;for(const id of Object.keys(u))if(PLONG.has(id))lng+=u[id];b+=lng;}
     return sq+b;};
+  // Record the finished game into local progression, exactly once per game.
+  // Only games containing a human seat count; all-CPU demos are ignored.
+  useEffect(()=>{if(!over)return;
+    const stamp=`${mapId}|${count}|${overSeed}`;if(savedGame.current===stamp)return;savedGame.current=stamp;
+    const me=seatsN.find(s=>seats[s-1].kind==="human");if(!me)return;
+    const myScore=scoreOf(me);
+    const tScore=t=>seatsN.filter(s=>teamOf(s)===t).reduce((a,s)=>a+scoreOf(s),0);
+    let won;
+    if(teamMode&&teamOf(me)){const mine=tScore(teamOf(me));
+      won=[...new Set(seatsN.map(teamOf).filter(t=>t))].every(t=>t===teamOf(me)||tScore(t)<=mine)
+        &&seatsN.filter(s=>!teamOf(s)).every(s=>scoreOf(s)<=mine);}
+    else won=seatsN.every(s=>s===me||scoreOf(s)<=myScore);
+    const tot=Object.values(used[me]||{}).reduce((a,b)=>a+b,0);
+    const next=recordGame(save,{civ:civOf(me),mapId,count,won,score:myScore,
+      placedAll:tot===PIECE_IDS.length*copies});
+    const [withUnlocks,fresh]=harvestUnlocks(next);
+    setSave(writeSave(withUnlocks));
+    if(fresh.length)setTimeout(()=>flash(`Unlocked: ${fresh.map(c=>c.name).join(" · ")}`),1400);
+  },[over]); // eslint-disable-line
   const hoverSet=useMemo(()=>{const m=new Map();if(hover)for(const [r,c] of hover.cells)if(inB(r,c,N,BW))m.set(r+","+c,hover.valid);return m;},[hover,N,BW]);
   const tentSet=useMemo(()=>{const s=new Set();if(tent)for(const [r,c] of tent.cells)s.add(r+","+c);return s;},[tent]);
   const startMarks=useMemo(()=>{const m={};for(let s=1;s<=count;s++){const [r,c]=starts[s-1];m[r+","+c]=s;}return m;},[count,starts]);
@@ -1291,17 +1415,18 @@ function App(){
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}><b style={{fontFamily:T.display,fontSize:18}}>Look &amp; feel</b><button onClick={()=>setShowSettings(false)} style={ghostBtn}>close</button></div>
       <div style={{fontFamily:T.mono,fontSize:10,color:T.muted,letterSpacing:1.5,marginBottom:8}}>BOARD THEME</div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(112px,1fr))",gap:8,marginBottom:18}}>
-        {Object.keys(THEMES).map(id=>{const th=THEMES[id],on=boardTheme===id;
-          return <button key={id} onClick={()=>setBoardTheme(id)} style={{padding:8,borderRadius:10,border:`1px solid ${on?T.accent:T.line}`,background:T.panel,cursor:"pointer",textAlign:"left"}}>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:2,height:28,borderRadius:5,overflow:"hidden",marginBottom:6,background:th.grid,padding:2}}>
-              <span style={{background:th.cell,borderRadius:2}}/><span style={{background:CIVS.kyrgyzstan.color,borderRadius:2}}/><span style={{background:CIVS.botswana.color,borderRadius:2}}/><span style={{background:th.wall,borderRadius:2}}/></div>
-            <span style={{fontFamily:T.mono,fontSize:11,color:on?T.ink:T.muted}}>{on?"● ":"○ "}{th.name}</span></button>;})}
+        {Object.keys(THEMES).map(id=>{const th=THEMES[id],on=boardTheme===id;const lk=isThemeLocked(save,id);
+          return <button key={id} onClick={()=>lk?flash(lockHint(id,THEME_LOCKS)):setBoardTheme(id)} title={lk?lockHint(id,THEME_LOCKS):th.name} style={{padding:8,borderRadius:10,border:`1px solid ${on?T.accent:T.line}`,background:T.panel,cursor:"pointer",textAlign:"left",opacity:lk?.45:1}}>
+            <div style={{position:"relative",display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:2,height:28,borderRadius:5,overflow:"hidden",marginBottom:6,background:th.grid,padding:2}}>
+              <span style={{background:th.cell,borderRadius:2}}/><span style={{background:CIVS.kyrgyzstan.color,borderRadius:2}}/><span style={{background:CIVS.botswana.color,borderRadius:2}}/><span style={{background:th.wall,borderRadius:2}}/>
+              {lk&&<span style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,color:"#fff",background:"rgba(0,0,0,.5)"}}>🔒</span>}</div>
+            <span style={{fontFamily:T.mono,fontSize:11,color:on?T.ink:T.muted}}>{lk?"🔒 ":on?"● ":"○ "}{th.name}</span></button>;})}
       </div>
       <div style={{fontFamily:T.mono,fontSize:10,color:T.muted,letterSpacing:1.5,marginBottom:8}}>PIECE TEXTURE</div>
       <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-        {Object.keys(PIECE_TEX).map(id=>{const on=pieceTex===id;const demo=pieceCellStyle(CIVS.guatemala.color,id,STH.cell);
-          return <button key={id} onClick={()=>setPieceTex(id)} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 12px",borderRadius:9,border:`1px solid ${on?T.accent:T.line}`,background:T.panel,cursor:"pointer"}}>
-            <span style={{width:20,height:20,borderRadius:4,...demo}}/><span style={{fontFamily:T.mono,fontSize:11.5,color:on?T.ink:T.muted}}>{PIECE_TEX[id]}</span></button>;})}
+        {Object.keys(PIECE_TEX).map(id=>{const on=pieceTex===id;const demo=pieceCellStyle(CIVS.guatemala.color,id,STH.cell);const lk=isTexLocked(save,id);
+          return <button key={id} onClick={()=>lk?flash(lockHint(id,TEX_LOCKS)):setPieceTex(id)} title={lk?lockHint(id,TEX_LOCKS):PIECE_TEX[id]} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 12px",borderRadius:9,border:`1px solid ${on?T.accent:T.line}`,background:T.panel,cursor:"pointer",opacity:lk?.45:1}}>
+            <span style={{width:20,height:20,borderRadius:4,...demo}}/><span style={{fontFamily:T.mono,fontSize:11.5,color:on?T.ink:T.muted}}>{lk?"🔒 ":""}{PIECE_TEX[id]}</span></button>;})}
       </div>
       <div style={{fontFamily:T.mono,fontSize:10,color:T.muted,letterSpacing:1.5,margin:"16px 0 8px"}}>ACCESSIBILITY</div>
       <button onClick={()=>setCbMode(v=>!v)} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderRadius:9,border:`1px solid ${cbMode?T.accent:T.line}`,background:T.panel,cursor:"pointer",width:"100%",textAlign:"left"}}>
@@ -1309,6 +1434,9 @@ function App(){
         <span style={{flex:1}}><span style={{fontFamily:T.mono,fontSize:11.5,color:cbMode?T.ink:T.muted}}>{cbMode?"✓ ":"  "}Colour-blind safe palette</span>
         <div style={{fontSize:10.5,color:T.muted,marginTop:2}}>Distinct seat colours plus a shape on every piece.</div></span>
       </button>
+      {/* The modal opens from the home screen too, where the in-game toast isn't
+          mounted, so carry a local copy for lock hints. */}
+      {toast&&<div style={{...toastStyle,position:"static",transform:"none",display:"block",marginTop:14,textAlign:"center"}}>{toast}</div>}
     </div></div>;
 
   // Safety net: a selection must always point at a piece you actually still hold.
@@ -1425,6 +1553,7 @@ function App(){
     <div style={{display:"flex",gap:12,flexWrap:"wrap",justifyContent:"center",marginTop:10,...(mob?{flexDirection:"column",alignItems:"stretch",maxWidth:320,margin:"10px auto 0"}:{})}}>
       <button onClick={()=>setScreen("map")} style={{...primaryBtn,fontSize:17,padding:mob?"16px 40px":"13px 40px"}}>Play</button>
       <button onClick={()=>setScreen("pedia")} style={{...ghostBtn,fontSize:14,padding:"13px 22px"}}>How to play</button>
+      <button onClick={()=>setScreen("progress")} style={{...ghostBtn,fontSize:14,padding:"13px 22px"}}>◷ Progress{save.games?` · ${save.wins}W`:""}</button>
       <button onClick={()=>setShowSettings(true)} style={{...ghostBtn,fontSize:14,padding:"13px 22px"}}>⚙ Theme</button>
     </div>
     {settingsModal}
@@ -1432,6 +1561,11 @@ function App(){
 
 
   if(screen==="pedia")return(<Shell theme={STH}><Crumb onBack={()=>setScreen("home")} step="How to play"/><Pedia/></Shell>);
+
+  if(screen==="progress")return(<Shell theme={STH}>
+    <Crumb onBack={()=>setScreen("home")} step="Progress"/>
+    <Progress save={save} onReset={()=>{if(window.confirm("Erase all progress on this device? This cannot be undone."))setSave(wipeSave());}}/>
+  </Shell>);
 
   if(screen==="map")return(<Shell theme={STH}>
     <Crumb onBack={()=>setScreen("home")} step="Pick a board"/>
