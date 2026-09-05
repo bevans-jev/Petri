@@ -178,7 +178,7 @@ const BOT_TIERS=Object.freeze([
 // Live matches intentionally use only the stable, hand-tested rank ladder.
 // Legacy evolved champions remain archived in localStorage but are no longer
 // injected into gameplay; the replacement AI project starts from a clean base.
-const botTierFor=mmr=>{const rating=Number(mmr)||1000;return BOT_TIERS.find(t=>rating<=t.max)||BOT_TIERS[BOT_TIERS.length-1];};
+const botTierFor=mmr=>{const rating=Number(mmr)||100;return BOT_TIERS.find(t=>rating<=t.max)||BOT_TIERS[BOT_TIERS.length-1];};
 const BOT_LEVELS=BOT_TIERS.map(t=>({mmr:t.min===0?100:t.min,label:t.label,sub:(t.min===0?"<200":t.min)+" MMR"}));
 
 const TILE = {
@@ -382,11 +382,17 @@ function neighbours(board,r,c,kind){const [H,W]=dimsOf(board),topo=board&&board.
 function cubeFaceOf(board,r,c){return board&&board._cube?board._cube.faceAt.get(rcKey(r,c))||null:null;}
 function cellsShareCubeFace(board,cells){if(!board||!board._cube)return true;let f=null;
   for(const [r,c] of cells){const q=cubeFaceOf(board,r,c);if(!q)return false;if(f===null)f=q.face;else if(q.face!==f)return false;}return true;}
-function clampAnchorToSurface(board,r,c,o){const [H,W]=dimsOf(board),rs=o.map(p=>p[0]),cs=o.map(p=>p[1]);
-  const spanR=Math.max(...rs)-Math.min(...rs),spanC=Math.max(...cs)-Math.min(...cs);
-  if(!board._cube)return[Math.max(0,Math.min(H-1-spanR,r)),Math.max(0,Math.min(W-1-spanC,c))];
+// Preserve the signed offsets of asymmetric orientations so every shape can
+// reach every cube seam instead of stopping one cell early.
+function pieceAnchorFrame(o){let ar=o[0][0],ac=o[0][1];
+  for(const [r,c] of o)if(r<ar||(r===ar&&c<ac)){ar=r;ac=c;}
+  let minR=Infinity,maxR=-Infinity,minC=Infinity,maxC=-Infinity;
+  for(const [r,c] of o){const dr=r-ar,dc=c-ac;minR=Math.min(minR,dr);maxR=Math.max(maxR,dr);minC=Math.min(minC,dc);maxC=Math.max(maxC,dc);}
+  return{ar,ac,minR,maxR,minC,maxC,spanR:maxR-minR,spanC:maxC-minC};}
+function clampAnchorToSurface(board,r,c,o){const [H,W]=dimsOf(board),f=pieceAnchorFrame(o),pin=(v,lo,hi)=>Math.max(lo,Math.min(hi,v));
+  if(!board._cube)return[pin(r,-f.minR,H-1-f.maxR),pin(c,-f.minC,W-1-f.maxC)];
   let q=cubeFaceOf(board,r,c);if(!q)q=board._cube.faceAt.get(rcKey(...cubeGlobal("F",0,0,board._cube.N)));
-  const lr=Math.max(0,Math.min(board._cube.N-1-spanR,q.r)),lc=Math.max(0,Math.min(board._cube.N-1-spanC,q.c));
+  const lr=pin(q.r,-f.minR,board._cube.N-1-f.maxR),lc=pin(q.c,-f.minC,board._cube.N-1-f.maxC);
   return cubeGlobal(q.face,lr,lc,board._cube.N);}
 // Like clampAnchorToSurface, but seats the piece so the pointed-at cell lands near its
 // CENTRE instead of its top-left corner. Top-left anchoring made large pieces appear to
@@ -395,11 +401,10 @@ function clampAnchorToSurface(board,r,c,o){const [H,W]=dimsOf(board),rs=o.map(p=
 // the whole way, so it stays visually attached. Falls back to a plain clamp off-cube.
 function cubeCenterAnchor(board,r,c,o){
   if(!board||!board._cube)return clampAnchorToSurface(board,r,c,o);
-  const N=board._cube.N,rs=o.map(p=>p[0]),cs=o.map(p=>p[1]);
-  const spanR=Math.max(...rs)-Math.min(...rs),spanC=Math.max(...cs)-Math.min(...cs);
+  const N=board._cube.N,f=pieceAnchorFrame(o),pin=(v,lo,hi)=>Math.max(lo,Math.min(hi,v));
   let q=cubeFaceOf(board,r,c);if(!q)q=board._cube.faceAt.get(rcKey(...cubeGlobal("F",0,0,N)));
-  const lr=Math.max(0,Math.min(N-1-spanR,q.r-Math.floor(spanR/2)));
-  const lc=Math.max(0,Math.min(N-1-spanC,q.c-Math.floor(spanC/2)));
+  const lr=pin(q.r-Math.floor(f.spanR/2)-f.minR,-f.minR,N-1-f.maxR);
+  const lc=pin(q.c-Math.floor(f.spanC/2)-f.minC,-f.minC,N-1-f.maxC);
   return cubeGlobal(q.face,lr,lc,N);}
 // Regions to scan when enumerating every anchor for a piece. A flat board is one
 // region covering the whole grid. A cube is SIX regions, one per face's own N×N
@@ -1826,14 +1831,14 @@ const BLANK_SAVE=Object.freeze({games:0,wins:0,streak:0,bestStreak:0,bestScore:0
   usedNames:[],      // local reservation history; the future server owns global uniqueness
   account:{email:"",status:"guest",accepted:false}, // preview only; never store a password locally
   cultureMmr:{},     // server-ready per-culture ladder records: {id:{mmr,games,wins}}
-  ranked:{blitz:{mmr:1000,games:0,wins:0,peak:1000,streak:0,bestStreak:0,cleanSweeps:0,byCiv:{}},full:{mmr:1000,games:0,wins:0,peak:1000,streak:0,bestStreak:0,cleanSweeps:0,byCiv:{}}},
+  ranked:{blitz:{mmr:100,games:0,wins:0,peak:100,streak:0,bestStreak:0,cleanSweeps:0,byCiv:{}},full:{mmr:100,games:0,wins:0,peak:100,streak:0,bestStreak:0,cleanSweeps:0,byCiv:{}}},
   created:""});
 function loadSave(){try{const raw=window.localStorage.getItem(SAVE_KEY);if(!raw)return{...BLANK_SAVE};
     const s=JSON.parse(raw);return{...BLANK_SAVE,...s,byCiv:{...(s.byCiv||{})},byMap:{...(s.byMap||{})},
       byCount:{...(s.byCount||{})},unlocked:[...(s.unlocked||[])],claimed:[...(s.claimed||[])],
       daily:{...(s.daily||{})},friends:[...(s.friends||[])],usedNames:[...(s.usedNames||[])],account:{email:"",status:"guest",accepted:false,...(s.account||{})},cultureMmr:{...(s.cultureMmr||{})},ranked:{
-        blitz:{mmr:1000,games:0,wins:0,peak:1000,streak:0,bestStreak:0,cleanSweeps:0,...(s.ranked&&s.ranked.blitz||{}),byCiv:{...(s.ranked&&s.ranked.blitz&&s.ranked.blitz.byCiv||{})}},
-        full:{mmr:1000,games:0,wins:0,peak:1000,streak:0,bestStreak:0,cleanSweeps:0,...(s.ranked&&s.ranked.full||{}),byCiv:{...(s.ranked&&s.ranked.full&&s.ranked.full.byCiv||{})}}}};
+        blitz:{mmr:100,games:0,wins:0,peak:100,streak:0,bestStreak:0,cleanSweeps:0,...(s.ranked&&s.ranked.blitz||{}),byCiv:{...(s.ranked&&s.ranked.blitz&&s.ranked.blitz.byCiv||{})}},
+        full:{mmr:100,games:0,wins:0,peak:100,streak:0,bestStreak:0,cleanSweeps:0,...(s.ranked&&s.ranked.full||{}),byCiv:{...(s.ranked&&s.ranked.full&&s.ranked.full.byCiv||{})}}}};
   }catch(e){return{...BLANK_SAVE};}}
 function writeSave(s){try{window.localStorage.setItem(SAVE_KEY,JSON.stringify(s));}catch(e){}return s;}
 function wipeSave(){try{window.localStorage.removeItem(SAVE_KEY);}catch(e){}return{...BLANK_SAVE};}
@@ -1874,14 +1879,14 @@ const RANKS=[
   {min:1600,name:"The Smothering",color:"#e4ad62"},{min:1800,name:"Dish Incarnate",color:"#ef7e88"},
   {min:2000,name:"The Uncontained",color:"#f3d36b"},{min:2500,name:"Grand Mycologist",color:"#fff1af"}];
 const rankOf=mmr=>{let out=RANKS[0];for(const r of RANKS)if(mmr>=r.min)out=r;return out;};
-const rankedRec=(save,mode)=>save.ranked&&save.ranked[mode]||{mmr:1000,games:0,wins:0,peak:1000};
+const rankedRec=(save,mode)=>save.ranked&&save.ranked[mode]||{mmr:100,games:0,wins:0,peak:100};
 function rankedResult(save,mode,myScore,opponents,ctx={}){const old=rankedRec(save,mode),k=old.games<10?44:28;
   let actual=0,expected=0;for(const o of opponents){actual+=myScore>o.score?1:myScore===o.score?.5:0;expected+=1/(1+Math.pow(10,(o.mmr-old.mmr)/400));}
   actual/=Math.max(1,opponents.length);expected/=Math.max(1,opponents.length);
   let delta=Math.round(k*(actual-expected));if(delta===0)delta=actual>=.5?1:-1;
   const won=actual===1,streak=won?(old.streak||0)+1:0,byCiv={...(old.byCiv||{})};if(ctx.civ){const c=byCiv[ctx.civ]||{p:0,w:0};byCiv[ctx.civ]={p:c.p+1,w:c.w+(won?1:0)};}
   const mmr=Math.max(100,old.mmr+delta),rec={...old,mmr,games:old.games+1,wins:old.wins+(won?1:0),streak,bestStreak:Math.max(old.bestStreak||0,streak),cleanSweeps:(old.cleanSweeps||0)+(won&&ctx.placedAll?1:0),byCiv,peak:Math.max(old.peak||old.mmr,mmr)};
-  let cultureMmr={...(save.cultureMmr||{})};if(ctx.civ){const co=cultureMmr[ctx.civ]||{mmr:1000,games:0,wins:0,peak:1000};let ce=0;for(const o of opponents)ce+=1/(1+Math.pow(10,(o.mmr-co.mmr)/400));ce/=Math.max(1,opponents.length);let cd=Math.round((co.games<10?44:28)*(actual-ce));if(cd===0)cd=actual>=.5?1:-1;const cm=Math.max(100,co.mmr+cd);cultureMmr[ctx.civ]={...co,mmr:cm,games:co.games+1,wins:co.wins+(won?1:0),peak:Math.max(co.peak||1000,cm)};}
+  let cultureMmr={...(save.cultureMmr||{})};if(ctx.civ){const co=cultureMmr[ctx.civ]||{mmr:100,games:0,wins:0,peak:100};let ce=0;for(const o of opponents)ce+=1/(1+Math.pow(10,(o.mmr-co.mmr)/400));ce/=Math.max(1,opponents.length);let cd=Math.round((co.games<10?44:28)*(actual-ce));if(cd===0)cd=actual>=.5?1:-1;const cm=Math.max(100,co.mmr+cd);cultureMmr[ctx.civ]={...co,mmr:cm,games:co.games+1,wins:co.wins+(won?1:0),peak:Math.max(co.peak||100,cm)};}
   return [{...save,cultureMmr,ranked:{...save.ranked,[mode]:rec}},delta,rec];}
 
 /* ---- DAILY CHALLENGE -------------------------------------------------------
@@ -2155,7 +2160,7 @@ function recordDaily(save,key,score,won,startedBehind){
 const rankedGames=s=>["blitz","full"].reduce((n,m)=>n+(rankedRec(s,m).games||0),0);
 const rankedWins=s=>["blitz","full"].reduce((n,m)=>n+(rankedRec(s,m).wins||0),0);
 const rankedBestStreak=s=>Math.max(...["blitz","full"].map(m=>rankedRec(s,m).bestStreak||0));
-const rankedPeak=s=>Math.max(...["blitz","full"].map(m=>rankedRec(s,m).peak||1000));
+const rankedPeak=s=>Math.max(...["blitz","full"].map(m=>rankedRec(s,m).peak||100));
 const rankedClean=s=>["blitz","full"].reduce((n,m)=>n+(rankedRec(s,m).cleanSweeps||0),0);
 const rankedCivs=s=>{const ids=new Set();for(const m of ["blitz","full"])for(const [id,r] of Object.entries(rankedRec(s,m).byCiv||{}))if(r.w>0)ids.add(id);return ids.size;};
 const CHALLENGES=[
@@ -2368,7 +2373,7 @@ function harvestUnlocks(save){const fresh=CHALLENGES.filter(c=>!save.claimed.inc
    Settings. Playing with people you know will use expiring Private Matches rather
    than a persistent friends graph.
    --------------------------------------------------------------------------- */
-function Profile({save,setSave,authUser,cosmetics,tab,setTab,onDeleteAccount}){const T=THEME;
+function Profile({save,setSave,authUser,isDev,cosmetics,tab,setTab,onDeleteAccount}){const T=THEME;
   const [editing,setEditing]=useState(false);
   const [draft,setDraft]=useState(save.name||"");
   const [picking,setPicking]=useState(false);
@@ -2517,7 +2522,7 @@ function Profile({save,setSave,authUser,cosmetics,tab,setTab,onDeleteAccount}){c
   // ---- settings ------------------------------------------------------------
   const settings=(<div style={{marginTop:14}}>
     {cosmetics}
-    <div style={{fontFamily:T.mono,fontSize:10,color:T.muted,letterSpacing:1.5,margin:"18px 0 8px"}}>PREVIEW</div>
+    {isDev&&<><div style={{fontFamily:T.mono,fontSize:10,color:T.accent,letterSpacing:1.5,margin:"18px 0 8px"}}>DEVELOPER TOOLS</div>
     <button onClick={()=>{const d={...save.daily};delete d[dayKey()];
         setSave(writeSave({...save,daily:d,dailyPos:null,dailyReroll:((save.dailyReroll||0)+1)}));}}
       style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderRadius:9,width:"100%",textAlign:"left",
@@ -2534,7 +2539,7 @@ function Profile({save,setSave,authUser,cosmetics,tab,setTab,onDeleteAccount}){c
       <span style={{flex:1,minWidth:0}}>
         <span style={{fontFamily:T.mono,fontSize:12,color:save.override?T.ink:T.muted}}>{save.override?"✓ ":"  "}Unlock every skin</span>
         <div style={{fontSize:10,color:T.muted,marginTop:2,lineHeight:1.4}}>Ignores all cosmetic locks so you can try things out. Your real challenge progress is untouched, so switching this off puts every lock back exactly where it was.</div></span>
-    </button>
+    </button></>}
     <div style={{fontFamily:T.mono,fontSize:10,color:"#ef7e88",letterSpacing:1.5,margin:"22px 0 8px"}}>ACCOUNT DELETION</div>
     <button onClick={onDeleteAccount} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderRadius:9,width:"100%",textAlign:"left",border:"1px solid #ef7e8877",background:T.panel,cursor:"pointer",color:"#ef7e88"}}>
       <span style={{fontSize:14}}>×</span><span style={{flex:1,minWidth:0}}><span style={{fontFamily:T.mono,fontSize:12}}>Permanently delete account</span>
@@ -2569,7 +2574,7 @@ function Leaderboards(){const T=THEME;const [ladder,setLadder]=useState("blitz")
 function PlayerLookup(){const T=THEME,[query,setQuery]=useState(""),[results,setResults]=useState([]),[picked,setPicked]=useState(null),[loading,setLoading]=useState(false),[lookupError,setLookupError]=useState("");
   useEffect(()=>{let alive=true,t=setTimeout(async()=>{const q=query.trim();setLookupError("");if(!q){setResults([]);setLoading(false);return;}setLoading(true);const {data,error}=await PETRI_SUPABASE.from("profiles").select("id,username,avatar_index").ilike("username",`%${q.replace(/[%_]/g,"")}%`).order("username").limit(12);if(alive){setResults(error?[]:data||[]);setLookupError(error?"Could not search players.":"");setLoading(false);}},250);return()=>{alive=false;clearTimeout(t);};},[query]);
   const openProfile=async row=>{setLoading(true);setLookupError("");const [ratings,cultures]=await Promise.all([PETRI_SUPABASE.from("ranked_ratings").select("mode,mmr,games,wins,best_streak").eq("user_id",row.id),PETRI_SUPABASE.from("culture_statistics").select("culture_id,games,wins").eq("user_id",row.id).order("games",{ascending:false})]);if(ratings.error||cultures.error){setLookupError("Could not load that public profile.");setLoading(false);return;}const byMode=Object.fromEntries((ratings.data||[]).map(r=>[r.mode,r])),bestCulture=(cultures.data||[])[0]||null;setPicked({...row,ratings:byMode,bestCulture});setLoading(false);};
-  const p=picked,av=p?AVATARS[p.avatar_index%AVATARS.length]||AVATARS[0]:null,blitz=p?.ratings?.blitz||{mmr:1000,games:0,wins:0,best_streak:0},full=p?.ratings?.full||{mmr:1000,games:0,wins:0,best_streak:0},games=blitz.games+full.games,wins=blitz.wins+full.wins;
+  const p=picked,av=p?AVATARS[p.avatar_index%AVATARS.length]||AVATARS[0]:null,blitz=p?.ratings?.blitz||{mmr:100,games:0,wins:0,best_streak:0},full=p?.ratings?.full||{mmr:100,games:0,wins:0,best_streak:0},games=blitz.games+full.games,wins=blitz.wins+full.wins;
   return <div>{p?<div>
     <button onClick={()=>setPicked(null)} style={{...ghostBtn,marginBottom:10}}>← results</button>
     <div style={{...card,padding:18}}><div style={{display:"flex",alignItems:"center",gap:14,marginBottom:16}}><div style={{width:64,height:64,borderRadius:"50%",border:`2px solid ${av.c}`,background:T.cell,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,color:av.c}}>{av.g}</div><div><div style={{fontFamily:T.display,fontSize:24,fontWeight:600}}>{p.username}</div><div style={{fontSize:12,color:T.muted}}>Public player overview</div></div></div>
@@ -2717,6 +2722,7 @@ function App(){
   const [loginBusy,setLoginBusy]=useState(false);
   const [authUser,setAuthUser]=useState(null);
   const [authReady,setAuthReady]=useState(false);
+  const [isDev,setIsDev]=useState(false);          // server-owned developer allowlist
   const [deleteOpen,setDeleteOpen]=useState(false);
   const [deleteConfirm,setDeleteConfirm]=useState("");
   const [deleteBusy,setDeleteBusy]=useState(false);
@@ -2744,6 +2750,7 @@ function App(){
     {kind:"cpu",civ:"kyrgyzstan",brain:"normal",botMmr:1000,power:"seed",team:0},
     {kind:"human",civ:"botswana",brain:"normal",power:"seed",team:0},
     {kind:"human",civ:"tonga",brain:"normal",power:"seed",team:0}]);
+  const [playerNames,setPlayerNames]=useState({}); // frozen display names for the active match
   const [teamMode,setTeamMode]=useState(false); // when on, seats share a team (see teamOf/matesOf)
   const [civPick,setCivPick]=useState(null);    // which dropdown is open: "<seat>:<field>", or null
   // Any click outside an open dropdown closes it, the way a real menu behaves.
@@ -3047,7 +3054,7 @@ function App(){
 
   function launchRanked(wanted){const qMode=wanted==="any"?(Math.random()<.5?"blitz":"full"):wanted;
     const rr=rankedRec(save,qMode),pool=[...CIV_IDS].sort(()=>Math.random()-.5),bans=pool.slice(0,3),allowed=pool.slice(3),pickedMap=ONLINE_MAP_IDS[Math.floor(Math.random()*ONLINE_MAP_IDS.length)];
-    const rivals=[0,1,2].map((_,i)=>({name:["PETRI-7","MOLD.EXE","CULTURE 13"][i],mmr:Math.max(300,Math.round(rr.mmr+(Math.random()-.5)*360))}));
+    const rivalSeed=`${Date.now()}:${qMode}`,rivals=[0,1,2].map((_,i)=>({name:botNameFor(i,rivalSeed),mmr:Math.max(100,Math.round(rr.mmr+(Math.random()-.5)*360))}));
     const powersOn=false,powerBans=[],allowedPowers=POWER_IDS;
     setDraftPick(null);setDraftPower(null);setDraftTick(0);setRankedDraft({mode:qMode,mapId:pickedMap,bans,allowed,rivals,powersOn,powerBans,allowedPowers,startMmr:rr.mmr,draftStarted:Date.now()});setQueue(null);setScreen("rankedDraft");}
   function beginRanked(civ,power){if(!rankedDraft||!rankedDraft.allowed.includes(civ)||rankedDraft.powersOn&&!rankedDraft.allowedPowers.includes(power))return;
@@ -3055,7 +3062,7 @@ function App(){
     const botCivs=rankedDraft.allowed.filter(id=>id!==civ).sort(()=>Math.random()-.5).slice(0,3),chosen=[civ,...botCivs];
     const botPowers=rankedDraft.allowedPowers.slice().sort(()=>Math.random()-.5);
     setDaily(null);setDailyInfo(null);setMode("standard");setMapId(rankedDraft.mapId);setCount(4);setTeamMode(false);
-    setSeats(chosen.map((c,i)=>({kind:i===0?"human":"cpu",civ:c,brain:"petri",botMmr:i?rankedDraft.rivals[i-1].mmr:undefined,power:rankedDraft.powersOn?(i===0?power:botPowers[i-1]||botPowers[0]):"seed",team:0})));
+    setSeats(chosen.map((c,i)=>({kind:i===0?"human":"cpu",civ:c,brain:"petri",botMmr:i?rankedDraft.rivals[i-1].mmr:undefined,playerName:i?rankedDraft.rivals[i-1].name:displayName(save),power:rankedDraft.powersOn?(i===0?power:botPowers[i-1]||botPowers[0]):"seed",team:0})));
     setOpts({powers:rankedDraft.powersOn,traits:true,events:false});setTc(rankedDraft.mode==="blitz"?"blitz":"long");
     setRankedMatch({...rankedDraft,delta:null,newMmr:null});setRankedDraft(null);setGenerating(true);setPendingStart(true);}
   function joinQueue(qMode){setQueue({mode:qMode,startedAt:Date.now()});setQueueTick(0);}
@@ -3068,7 +3075,7 @@ function App(){
     setDaily(null);setDailyInfo(null);setRankedMatch(null);setMode("standard");setMapId(ONLINE_MAP_IDS.includes(codeDraft.mapId)?codeDraft.mapId:"open");setCount(seatCount);setTeamMode(format==="rivals");
     setSeats(pool.map((c,i)=>({kind:i<humanCount?"human":"cpu",civ:c,brain:"petri",botMmr:Math.max(200,rr.mmr+(i%2?80:-80)),power:codeDraft.powers?POWER_IDS[i%POWER_IDS.length]:"seed",team:teamFor(i)})));
     setOpts({powers:!!codeDraft.powers,traits:true,events:false});setTc(codeDraft.clock==="blitz"?"blitz":"long");setCodeLobby(null);setCodeMatchActive(true);setGenerating(true);setPendingStart(true);}
-  function devSetRating(mode,mmr){setSave(s=>{const old=rankedRec(s,mode),next={...s,ranked:{...s.ranked,[mode]:{...old,mmr,peak:Math.max(old.peak||0,mmr)}}};return writeSave(next);});}
+  function devSetRating(mode,mmr){if(!isDev)return;setSave(s=>{const old=rankedRec(s,mode),next={...s,ranked:{...s.ranked,[mode]:{...old,mmr,peak:Math.max(old.peak||0,mmr)}}};return writeSave(next);});}
   useEffect(()=>{if(!queue)return;const limit=queue.mode==="any"?420:210;
     const id=setInterval(()=>{const elapsed=(Date.now()-queue.startedAt)/1000;setQueueTick(x=>x+1);if(elapsed>=limit){clearInterval(id);launchRanked(queue.mode);}},500);
     return()=>clearInterval(id);},[queue]); // eslint-disable-line
@@ -3077,6 +3084,15 @@ function App(){
     return()=>clearInterval(id);},[rankedDraft]); // eslint-disable-line
 
   function startGame(){let {board:b,specials:sp,starts:st,copies:cp}=buildMap(mapId);
+    const nameSeed=crypto.randomUUID(),names={};let localHuman=0;
+    for(let s=1;s<=count;s++){
+      const seat=seats[s-1];
+      if(seat.kind==="human"){
+        localHuman++;
+        names[s]=seat.playerName||(localHuman===1?displayName(save):`Player ${localHuman}`);
+      }else names[s]=seat.playerName||botNameFor(s-1,`${nameSeed}:${seat.civ}:${s}`);
+    }
+    setPlayerNames(names);
     const pw=opts.powers,tr=opts.traits;
     const u={},l={},ch={};for(let s=1;s<=count;s++){u[s]={};l[s]=null;ch[s]=pw?POWERS[seats[s-1].power].charges:0;}
     // Daily handicap: drop the pre-played opening in before anything else, so
@@ -3119,8 +3135,8 @@ function App(){
       let oo=o,drop=null;
       if(isFirst(turn)){ // first move is a real hint: find an orientation + spot that legally covers your start
         const st=startOf(turn),H=board.length,W=board[0].length;
-        outer:for(const cand of orients(PIECES[id])){const co=norm(cand);const mR=Math.max(...co.map(p=>p[0])),mC=Math.max(...co.map(p=>p[1]));
-          for(let r=0;r<=H-1-mR;r++)for(let c=0;c<=W-1-mC;c++){const cells=anchorWith(co,r,c);
+        outer:for(const cand of orients(PIECES[id])){const co=norm(cand),f=pieceAnchorFrame(co);
+          for(let r=-f.minR;r<=H-1-f.maxR;r++)for(let c=-f.minC;c<=W-1-f.maxC;c++){const cells=anchorWith(co,r,c);
             if(valid(board,cells,turn,true,st,humanX())){oo=co;drop=[r,c];break outer;}}}
       }
       if(!drop)drop=initialDrop(oo); // later pieces (or no legal first spot): middle of your colony, you position it
@@ -3131,11 +3147,9 @@ function App(){
   // re-checks legality there, so adjusting a piece never loses your spot.
   function orientKeep(f){const drag=cubeDragRef.current;if(drag.finish)drag.finish();
     const o=f(selRef.current);setSel(o);selRef.current=o;
-    if(tent&&tent.r!==undefined){const H=board.length,W=board[0].length;
+    if(tent&&tent.r!==undefined){
       // Keep the re-oriented piece fully on the board: clamp the anchor to the
       // piece's span so a spin/flip near an edge can never fling it off and lose it.
-      const rs=o.map(p=>p[0]),cs=o.map(p=>p[1]);
-      const spanR=Math.max(...rs)-Math.min(...rs),spanC=Math.max(...cs)-Math.min(...cs);
       const [r,c]=clampAnchorToSurface(board,tent.r,tent.c,o);
       const cells=anchorWith(o,r,c);
       setTent({cells,id:tent.id,r,c,ok:valid(board,cells,turn,isFirst(turn),startOf(turn),humanX()),locked:tent.locked});}}
@@ -3148,18 +3162,17 @@ function App(){
     if(e.key==="Enter"&&tent&&tent.ok!==false&&curHuman()&&!over){e.preventDefault();submit();}};
     window.addEventListener("keydown",h);return()=>window.removeEventListener("keydown",h);}); // eslint-disable-line
 
-  const anchorWith=(o,r,c)=>{let hr=o[0][0],hc=o[0][1];for(const [pr,pc] of o){if(pr<hr||(pr===hr&&pc<hc)){hr=pr;hc=pc;}}return o.map(([pr,pc])=>[r+pr-hr,c+pc-hc]);};
+  const anchorWith=(o,r,c)=>{const f=pieceAnchorFrame(o);return o.map(([pr,pc])=>[r+pr-f.ar,c+pc-f.ac]);};
   const anchorCells=(r,c)=>sel?anchorWith(sel,r,c):null;
   // Mobile: where a freshly-picked piece first lands. The FIRST piece is a hint,
   // dropped on your start corner so a new player isn't lost. Every piece after
   // that lands in the middle of your own colony, NOT snapped to a legal spot,
   // so the player has to position it themselves (auto-snapping would be cheating).
-  function initialDrop(o){const H=board.length,W=board[0].length;
-    const mR=Math.max(...o.map(p=>p[0])),mC=Math.max(...o.map(p=>p[1]));
+  function initialDrop(o){const H=board.length,W=board[0].length,f=pieceAnchorFrame(o);
     const clamp=(r,c)=>clampAnchorToSurface(board,r,c,o);
     if(isFirst(turn)){ // first move: a real hint — the legal spot nearest your start
       const st=startOf(turn);let best=null,bd=1e9;
-      for(let r=0;r<=H-1-mR;r++)for(let c=0;c<=W-1-mC;c++){const cells=anchorWith(o,r,c);
+      for(let r=-f.minR;r<=H-1-f.maxR;r++)for(let c=-f.minC;c<=W-1-f.maxC;c++){const cells=anchorWith(o,r,c);
         if(valid(board,cells,turn,true,st,humanX())){const d=Math.abs(r-st[0])+Math.abs(c-st[1]);if(d<bd){bd=d;best=[r,c];}}}
       return best||clamp(st[0],st[1]);}
     // every piece after that lands in the middle of your colony, NOT snapped to a
@@ -3279,6 +3292,31 @@ function App(){
   const cubeMouseLeave=()=>{const j=hoverJob.current;if(j.raf){cancelAnimationFrame(j.raf);j.raf=0;}j.pend=null;
     const q=tentJob.current;if(q.raf){cancelAnimationFrame(q.raf);q.raf=0;}q.pend=null;};
   useEffect(()=>()=>{const j=hoverJob.current;if(j.raf)cancelAnimationFrame(j.raf);},[]);
+  // Ray-cast against the actual cube instead of trusting transformed-DOM hit
+  // testing, which becomes unreliable face-on and directly along a seam.
+  function cubeCellFromPointer(e){if(!board._cube||!e.currentTarget)return null;
+    const rc=e.currentTarget.getBoundingClientRect(),sx=e.clientX-(rc.left+rc.width/2),sy=e.clientY-(rc.top+rc.height/2);
+    const h=cubeFacePx/2,p=cubeStagePx*2.2,a=cubeRot.x*Math.PI/180,b=cubeRot.y*Math.PI/180;
+    const ca=Math.cos(a),sa=Math.sin(a),cb=Math.cos(b),sb=Math.sin(b);
+    const inv=v=>{const y=ca*v.y+sa*v.z,z=-sa*v.y+ca*v.z;return{x:cb*v.x-sb*z,y,z:sb*v.x+cb*z};};
+    const o=inv({x:0,y:0,z:p}),q=inv({x:sx,y:sy,z:0}),d={x:q.x-o.x,y:q.y-o.y,z:q.z-o.z};
+    let near=-Infinity,far=Infinity,axis=null,side=0;
+    for(const k of ["x","y","z"]){const ov=o[k],dv=d[k];
+      if(Math.abs(dv)<1e-9){if(ov<-h||ov>h)return null;continue;}
+      const ta=(-h-ov)/dv,tb=(h-ov)/dv,lo=Math.min(ta,tb),hi=Math.max(ta,tb),loSide=ta<tb?-1:1;
+      if(lo>near){near=lo;axis=k;side=loSide;}far=Math.min(far,hi);if(near>far)return null;}
+    const t=near>=0?near:far;if(!Number.isFinite(t)||t<0||!axis)return null;
+    const hit={x:o.x+d.x*t,y:o.y+d.y*t,z:o.z+d.z*t},N=board._cube.N;
+    const cell=(v,rev)=>Math.max(0,Math.min(N-1,Math.floor((rev?(h-v):(v+h))/(2*h)*N)));
+    let face,lr,lc;
+    if(axis==="z"){face=side>0?"F":"B";lr=cell(hit.y,false);lc=cell(hit.x,side<0);}
+    else if(axis==="x"){face=side>0?"R":"L";lr=cell(hit.y,false);lc=cell(hit.z,side>0);}
+    else {face=side>0?"D":"U";lr=cell(hit.z,side>0);lc=cell(hit.x,false);}
+    const g=cubeGlobal(face,lr,lc,N);return{face,lr,lc,r:g[0],c:g[1]};}
+  function cubePointerMove(e){if(e.buttons||cubeGrab||!sel)return;if(e.target&&e.target.closest&&e.target.closest("button"))return;
+    const q=cubeCellFromPointer(e);if(q)cellEnter(q.r,q.c,e);}
+  function cubeStageClick(e){if(e.button!==0||cubeGrab)return;if(e.target&&e.target.closest&&e.target.closest("button"))return;
+    const q=cubeCellFromPointer(e);if(q)cellClick(q.r,q.c);}
   function cellEnter(r,c,e){curCell.current=[r,c];
     if(mob||!sel||!curHuman()||targeting||(e&&e.buttons))return;
     const cells=anchorWith(sel,r,c);
@@ -3411,15 +3449,14 @@ function App(){
     if(ok){setTent({cells,id:selId,r,c,ok:true});setHover(null);curCell.current=[r,c];}else flash("Not there, colonies only link at the corners, never flat edge to edge.");}
   // Shift the tentative piece one cell; legality re-checked live (mobile arrows).
   function nudge(dr,dc){if(!tent||tent.r===undefined||!sel)return;
-    const rs=sel.map(p=>p[0]),cs=sel.map(p=>p[1]);
-    const spanR=Math.max(...rs)-Math.min(...rs),spanC=Math.max(...cs)-Math.min(...cs);
+    const f=pieceAnchorFrame(sel),pin=(v,lo,hi)=>Math.max(lo,Math.min(hi,v));
     let r,c;
     if(board._cube){
       // Move within the piece's CURRENT face and clamp inside it. A nudge can never
       // step across the atlas gutter onto another (often hidden) face — that cross-gutter
       // jump was the top/bottom-face "piece vanished / frozen" bug.
       const N=board._cube.N,q=cubeFaceOf(board,tent.r,tent.c);if(!q)return;
-      const lr=Math.max(0,Math.min(N-1-spanR,q.r+dr)),lc=Math.max(0,Math.min(N-1-spanC,q.c+dc));
+      const lr=pin(q.r+dr,-f.minR,N-1-f.maxR),lc=pin(q.c+dc,-f.minC,N-1-f.maxC);
       const g=cubeGlobal(q.face,lr,lc,N);r=g[0];c=g[1];
     } else {const a=clampAnchorToSurface(board,tent.r+dr,tent.c+dc,sel);r=a[0];c=a[1];}
     if(r===tent.r&&c===tent.c)return;
@@ -3702,6 +3739,7 @@ function App(){
   },[turn,step,screen,over]); // eslint-disable-line
   useEffect(()=>{if(over)vib([20,40,20,40,60]);},[over]); // eslint-disable-line
 
+  const playerNameOf=s=>playerNames[s]||(seats[s-1]?.kind==="human"?(s===1?displayName(save):`Player ${s}`):botNameFor(s-1,`${mapId}:${civOf(s)}:${s}`));
   const scoreOf=s=>{let sq=0;for(let r=0;r<N;r++)for(let c=0;c<BW;c++)if(board[r][c]===s)sq++;if(caravan&&caravan.seat===s)sq++;for(const f of floods)if(f.seat===s)sq+=f.cells.length;for(const f of forts)if(f.seat===s)sq+=f.cells.length;for(const t of towers)if(t.seat===s)sq+=t.cells.filter(([r,c])=>board[r][c]===s).length;sq+=eruptScore[s]||0;sq+=(wordDone[s]||0)*2;const u=used[s]||{};const tot=Object.values(u).reduce((a,b)=>a+b,0);const all=tot===PIECE_IDS.length*copies;let b=0;if(all){b+=15;if(last[s]==="mono")b+=5;}
     if(oTraits&&civOf(s)==="tonga"){let pent=0;for(const id of Object.keys(u))if(PSIZE[id]===5)pent+=u[id];b+=pent;}
     if(oTraits&&civOf(s)==="dominican")b+=Math.floor(tot/4);
@@ -3742,8 +3780,8 @@ function App(){
     const [withUnlocks,fresh]=harvestUnlocks(next);
     setSave(writeSave(withUnlocks));
     // Guests remain local-only. Signed-in Daily results use the narrow Daily
-    // RPC; ordinary solo games use the authenticated record-game function.
-    // Ranked/private results wait for an authoritative multiplayer server.
+    // RPC. Solo games and the current bot-filled ranked preview both use the
+    // authenticated result function; private matches remain unranked/local.
     if(authUser){
       if(daily){
         const placement=1+seatsN.filter(s=>s!==me&&scoreOf(s)>myScore).length;
@@ -3752,19 +3790,20 @@ function App(){
           p_margin:margin,p_comeback:!!(dailyInfo&&dailyInfo.startDeficit>0),
           p_metadata:{map_id:mapId,player_count:count}
         }).then(({error})=>{if(error)flash("Saved on this device; Daily cloud sync will retry later.");});
-      }else if(!rankedMatch&&!codeMatchActive){
+      }else if(!codeMatchActive){
         const resultId=crypto.randomUUID();
         const players=seatsN.map(s=>{const pieceUses=used[s]||{},piecesPlaced=Object.values(pieceUses).reduce((a,b)=>a+b,0);return{
           seat:s,cultureId:civOf(s),score:scoreOf(s),piecesPlaced,squaresCovered:scoreOf(s),
           placedAllPieces:piecesPlaced===PIECE_IDS.length*copies,
-          botName:s===me?undefined:botNameFor(s-1,`${resultId}:${s}`)
+          botName:s===me?undefined:playerNameOf(s),botMmr:s===me?undefined:(seats[s-1].botMmr||undefined)
         };});
         PETRI_SUPABASE.functions.invoke("record-game",{body:{
-          resultId,kind:"solo",mapId,mapFamily:mode==="cube"?"cube":mapMeta.mega?"mega":mapMeta.twin?"twin":"standard",
+          resultId,kind:rankedMatch?"ranked":"solo",clockMode:rankedMatch?.mode,
+          mapId,mapFamily:mode==="cube"?"cube":mapMeta.mega?"mega":mapMeta.twin?"twin":"standard",
           playerCount:count,humanSeat:me,teamMode,powersEnabled:!!opts.powers,
           traitsEnabled:!!opts.traits,eventsEnabled:!!opts.events,pureRules:powersOff,
           allExpertTable:allExpert,humanWon:won,winMargin:margin,players
-        }}).then(({error})=>{if(error)flash("Saved on this device; solo cloud sync will retry later.");});
+        }}).then(({error})=>{if(error)flash("Saved on this device; cloud result sync will retry later.");});
       }
     }
     if(fresh.length)setTimeout(()=>flash(`Unlocked: ${fresh.map(c=>c.name).join(" · ")}`),1400);
@@ -3824,7 +3863,7 @@ function App(){
     PETRI_SUPABASE.auth.getSession().then(({data})=>{if(alive){setAuthUser(data.session?.user||null);setAuthReady(true);}});
     const {data:{subscription}}=PETRI_SUPABASE.auth.onAuthStateChange((event,session)=>{
       if(!alive)return;
-      setAuthUser(session?.user||null);setAuthReady(true);
+      setAuthUser(session?.user||null);setIsDev(false);setDevRankOpen(false);setAuthReady(true);
       if(event==="PASSWORD_RECOVERY"){setLoginMode("reset");setLoginPassword("");setLoginMsg("");setLoginOpen(true);}
       if(session?.user)setSave(old=>writeSave({...old,account:{...old.account,email:session.user.email||"",status:"signed-in",accepted:true}}));
       else setSave(old=>writeSave({...old,account:{...old.account,status:"guest"}}));
@@ -3832,7 +3871,7 @@ function App(){
     return()=>{alive=false;subscription.unsubscribe();};
   },[]);
   useEffect(()=>{
-    if(!authUser)return;
+    if(!authUser){setIsDev(false);return;}
     let alive=true;
     Promise.all([
       PETRI_SUPABASE.from("profiles").select("username,avatar_index").eq("id",authUser.id).single(),
@@ -3841,16 +3880,18 @@ function App(){
       PETRI_SUPABASE.from("culture_statistics").select("culture_id,games,wins").eq("user_id",authUser.id),
       PETRI_SUPABASE.from("map_statistics").select("map_id,games,wins").eq("user_id",authUser.id),
       PETRI_SUPABASE.rpc("get_recent_daily_results"),
-      PETRI_SUPABASE.from("player_challenges").select("challenge_id,completed").eq("user_id",authUser.id).eq("completed",true)
-    ]).then(([profile,ratings,stats,cultures,maps,dailies,challenges])=>{
+      PETRI_SUPABASE.from("player_challenges").select("challenge_id,completed").eq("user_id",authUser.id).eq("completed",true),
+      PETRI_SUPABASE.from("developer_accounts").select("user_id").eq("user_id",authUser.id).maybeSingle()
+    ]).then(([profile,ratings,stats,cultures,maps,dailies,challenges,developer])=>{
       if(!alive||profile.error)return;
+      const devAllowed=!developer.error&&!!developer.data;setIsDev(devAllowed);
       const rankedRows=ratings.data||[],ps=stats.data||{},byCiv={},byMap={},daily={};
       for(const r of cultures.data||[])byCiv[r.culture_id]={p:r.games,w:r.wins};
       for(const r of maps.data||[])byMap[r.map_id]={p:r.games,w:r.wins};
       for(const r of dailies.data||[])daily[r.challenge_date]={best:r.best_score,won:r.won,plays:r.attempts};
       const completed=(challenges.data||[]).map(r=>r.challenge_id);
       setSave(old=>{const ranked={...old.ranked};for(const r of rankedRows)ranked[r.mode]={...ranked[r.mode],mmr:r.mmr,games:r.games,wins:r.wins,peak:r.peak_mmr,streak:r.current_streak,bestStreak:r.best_streak,cleanSweeps:r.clean_sweeps||0};
-        return writeSave({...old,
+        return writeSave({...old,override:devAllowed?old.override:false,
           name:profile.data.username||old.name,avatar:Number.isInteger(profile.data.avatar_index)?profile.data.avatar_index:old.avatar,
           games:ps.games_total||0,wins:ps.wins_total||0,streak:ps.current_win_streak||0,bestStreak:ps.best_win_streak||0,bestScore:ps.highest_score||0,
           allPieces:ps.all_pieces_games||0,megaWins:ps.mega_wins||0,twinWins:ps.twin_wins||0,expertWins:ps.expert_table_wins||0,
@@ -3886,7 +3927,7 @@ function App(){
     }catch(err){setLoginMsg(err?.message||"PETRI could not complete that request. Try again.");}
     finally{setLoginBusy(false);}
   };
-  const signOut=async()=>{await PETRI_SUPABASE.auth.signOut();setScreen("home");};
+  const signOut=async()=>{await PETRI_SUPABASE.auth.signOut();setIsDev(false);setDevRankOpen(false);setSave(s=>writeSave({...s,override:false}));setScreen("home");};
   const openDeleteAccount=()=>{setDeleteConfirm("");setDeleteMsg("");setDeleteOpen(true);};
   const deleteAccount=async e=>{
     e.preventDefault();if(deleteBusy||deleteConfirm!=="DELETE")return;
@@ -4065,7 +4106,7 @@ function App(){
 
   if(screen==="progress")return(<Shell wide theme={STH}>
     <Crumb onBack={()=>setScreen("home")} step="Profile"/>
-    <Profile save={save} setSave={setSave} authUser={authUser} tab={profTab} setTab={setProfTab} cosmetics={cosmeticPanel} onDeleteAccount={openDeleteAccount}/>
+    <Profile save={save} setSave={setSave} authUser={authUser} isDev={isDev} tab={profTab} setTab={setProfTab} cosmetics={cosmeticPanel} onDeleteAccount={openDeleteAccount}/>
     {deleteModal}
     {toast&&<div style={{...toastStyle}}>{toast}</div>}
   </Shell>);
@@ -4112,15 +4153,15 @@ function App(){
       :<div style={{...card,padding:16,borderColor:T.accent}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"start",gap:10,flexWrap:"wrap"}}><div><div style={{fontFamily:T.mono,fontSize:10,color:T.accent,letterSpacing:1.5}}>LOBBY CODE</div><div style={{fontFamily:T.display,fontSize:28,fontWeight:600,letterSpacing:2}}>{codeLobby.code}</div></div><span style={{fontFamily:T.mono,fontSize:10,color:T.muted}}>YOU ARE HOST</span></div>
         <div style={{display:"grid",gap:6,margin:"14px 0"}}>{[0,1,2,3].map(i=>{const bot=i>=codeLobby.humans&&codeDraft.format==="together";return <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"8px 10px",borderRadius:7,background:T.cell,fontFamily:T.mono,fontSize:10}}><span>{i===0?displayName(save):i<codeLobby.humans?`FRIEND ${i}`:bot?botNameFor(i-codeLobby.humans,codeLobby.code):`SEAT ${i+1}`}</span><span style={{color:i<codeLobby.humans?"#75c39a":T.muted}}>{i<codeLobby.humans?"connected":bot?"PETRI bot":codeDraft.format==="rivals"?"waiting for player":"left empty"}</span></div>;})}</div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))",gap:9}}><label style={{fontFamily:T.mono,fontSize:10,color:T.muted}}>HOST MAP · 20/30 SEC<select value={codeDraft.mapId} onChange={e=>setCodeDraft(d=>({...d,mapId:e.target.value}))} style={{...input,width:"100%",marginTop:4}}>{ONLINE_MAP_IDS.map(id=><option key={id} value={id}>{MAPS[id].name}</option>)}</select></label><label style={{fontFamily:T.mono,fontSize:10,color:T.muted}}>POWERS · PRIVATE BETA<select value={codeDraft.powers?"on":"off"} onChange={e=>setCodeDraft(d=>({...d,powers:e.target.value==="on"}))} style={{...input,width:"100%",marginTop:4}}><option value="on">On</option><option value="off">Off</option></select></label></div>
-        <div style={{fontSize:10,color:T.muted,marginTop:10}}>Traits always on · events off · leavers become equally rated Petri bots · no MMR changes</div><div style={{display:"flex",gap:7,marginTop:12,flexWrap:"wrap"}}>{codeLobby.humans<4&&<button onClick={()=>setCodeLobby(l=>({...l,humans:Math.min(4,l.humans+1)}))} style={ghostBtn}>DEV · add friend</button>}<button disabled={codeLobby.humans<2||codeDraft.format==="rivals"&&codeLobby.humans<4} onClick={startCodeMatch} style={{...primaryBtn,opacity:codeLobby.humans>=2&&(codeDraft.format!=="rivals"||codeLobby.humans>=4)?1:.45}}>{codeDraft.format==="rivals"&&codeLobby.humans<4?`Waiting for ${4-codeLobby.humans} player${4-codeLobby.humans===1?"":"s"}`:codeDraft.format==="together"?"Start with bot fill":codeDraft.format==="rivals"?"Start teams":"Start with no fill"}</button><button onClick={()=>setCodeLobby(null)} style={ghostBtn}>Leave</button></div></div>}
+        <div style={{fontSize:10,color:T.muted,marginTop:10}}>Traits always on · events off · leavers become equally rated Petri bots · no MMR changes</div><div style={{display:"flex",gap:7,marginTop:12,flexWrap:"wrap"}}>{isDev&&codeLobby.humans<4&&<button onClick={()=>setCodeLobby(l=>({...l,humans:Math.min(4,l.humans+1)}))} style={ghostBtn}>DEV · add friend</button>}<button disabled={codeLobby.humans<2||codeDraft.format==="rivals"&&codeLobby.humans<4} onClick={startCodeMatch} style={{...primaryBtn,opacity:codeLobby.humans>=2&&(codeDraft.format!=="rivals"||codeLobby.humans>=4)?1:.45}}>{codeDraft.format==="rivals"&&codeLobby.humans<4?`Waiting for ${4-codeLobby.humans} player${4-codeLobby.humans===1?"":"s"}`:codeDraft.format==="together"?"Start with bot fill":codeDraft.format==="rivals"?"Start teams":"Start with no fill"}</button><button onClick={()=>setCodeLobby(null)} style={ghostBtn}>Leave</button></div></div>}
     </div>:!queue?<div>
       <div style={{...card,padding:20,marginBottom:13,borderColor:"#75c39a66",background:`linear-gradient(135deg,${T.panel},${shade("#75c39a",-.88)})`}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"start",gap:15,flexWrap:"wrap"}}><div><div style={{fontFamily:T.mono,fontSize:10,color:"#75c39a",letterSpacing:2}}>COMPETITIVE · 4 PLAYERS</div>
         <div style={{fontFamily:T.display,fontWeight:600,fontSize:28,marginTop:2}}>Online Matchmaking</div>
         <div style={{fontSize:12,color:T.muted,lineHeight:1.5,marginTop:4,maxWidth:510}}>Traits always on. The match rolls powers on or off, a random board and three culture bans, then opens a 30-second draft.</div></div>
-        <button onClick={()=>setDevRankOpen(x=>!x)} style={{...ghostBtn,padding:"7px 10px",fontFamily:T.mono,fontSize:10,borderColor:devRankOpen?T.accent:T.line,color:devRankOpen?T.accent:T.muted}}>DEV · RATINGS</button></div>
+        {isDev&&<button onClick={()=>setDevRankOpen(x=>!x)} style={{...ghostBtn,padding:"7px 10px",fontFamily:T.mono,fontSize:10,borderColor:devRankOpen?T.accent:T.line,color:devRankOpen?T.accent:T.muted}}>DEV · RATINGS</button>}</div>
       </div>
-      {devRankOpen&&<div style={{...card,padding:14,marginBottom:12,borderColor:T.accent}}>
+      {isDev&&devRankOpen&&<div style={{...card,padding:14,marginBottom:12,borderColor:T.accent}}>
         <div style={{fontFamily:T.mono,fontSize:10,color:T.accent,letterSpacing:1.5}}>DEVELOPER RATING CONTROL</div>
         <div style={{fontSize:12,color:T.muted,margin:"3px 0 10px"}}>Choose a ladder, then jump directly to any title threshold. Saved on this device.</div>
         {["blitz","full"].map(m=><div key={m} style={{display:"grid",gridTemplateColumns:mob?"1fr":"72px 1fr",gap:7,alignItems:"center",marginTop:7}}><b style={{fontFamily:T.mono,fontSize:10}}>{m.toUpperCase()}<span style={{display:"block",color:rankOf(rankedRec(save,m).mmr).color,fontSize:10}}>{rankedRec(save,m).mmr}</span></b><div style={{display:"flex",gap:5,flexWrap:"wrap"}}>{RANKS.map(r=>{const preset=r.min===0?100:r.min;return <button key={r.name} onClick={()=>devSetRating(m,preset)} style={{...ghostBtn,padding:"5px 7px",fontSize:10,borderColor:rankedRec(save,m).mmr===preset?r.color:T.line,color:r.color}}>{r.name} · {r.min===0?"<200":preset}</button>;})}</div></div>)}
@@ -4370,7 +4411,7 @@ function App(){
     if(siegeMode&&siegePick.some(([a,b])=>a===r&&b===c)){style={...style,boxShadow:`inset 0 0 0 2px ${T.accent}`};inner=<span style={{color:T.accent,fontSize:"0.8em",fontWeight:500}}>⛨</span>;}
     const ogArm=armed&&seats[turn-1]?.power==="overgrow";
     const clickable=v!==-2&&(eruptPick?(v===turn):((v===-4&&caravan&&caravan.seat===turn&&caravan.step===step&&curHuman())||(siegeMode?(v>0&&v!==turn&&siegeTargets(board,turn,matesOf(turn),siegePick).some(([a,b])=>a===r&&b===c)):(okaArmed?v===0:(caravanMode?v===0:(targeting||(sel&&(v===0||(castellArmed&&v===turn)||(ogArm&&v>0&&v!==turn)||ascentArmed))))))));
-    return <div key={key||k} onMouseEnter={e=>cellEnter(r,c,e)} onPointerMove={isCube?e=>{if(e.buttons===0)cellEnter(r,c,e);}:undefined} onClick={clickable?()=>cellClick(r,c):undefined}
+    return <div key={key||k} onMouseEnter={isCube?undefined:e=>cellEnter(r,c,e)} onClick={!isCube&&clickable?()=>cellClick(r,c):undefined}
       style={{position:"relative",borderRadius:2,display:"flex",alignItems:"center",justifyContent:"center",cursor:clickable?"pointer":"default",fontSize:isCube?cubeCellPx:cellPx,...style}}>{inner}</div>;}
   return(<Shell wide theme={BT}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:mob?8:14,flexWrap:"wrap",gap:8}}>
@@ -4382,11 +4423,13 @@ function App(){
           {teamList.map(t=>{const mem=seatsN.filter(s=>teamOf(s)===t),act=teamOf(turn)===t&&!over;
             return(<div key={"t"+t} style={{flex:"1 1 0",minWidth:0,display:"flex",alignItems:"center",gap:5,padding:"4px 7px",borderRadius:7,border:`1px solid ${act?teamColor(t):T.line}`,background:act?shade(teamColor(t),-0.72):T.panel}}>
               <span style={{fontFamily:T.mono,fontSize:10,fontWeight:500,color:teamColor(t),letterSpacing:.5}}>T{t}</span>
-              <span style={{display:"flex",gap:2,flex:"0 0 auto"}}>{mem.map(s=>(<span key={s} title={CIVS[civOf(s)].name} style={{width:8,height:8,borderRadius:2,background:colorOf(s),opacity:done.has(s)?.4:1,outline:s===turn&&!over?`1.5px solid ${T.ink}`:"none"}}/>))}</span>
+              <span style={{display:"flex",gap:2,flex:"0 0 auto"}}>{mem.map(s=>(<span key={s} title={`${playerNameOf(s)} · ${CIVS[civOf(s)].name}`} style={{width:8,height:8,borderRadius:2,background:colorOf(s),opacity:done.has(s)?.4:1,outline:s===turn&&!over?`1.5px solid ${T.ink}`:"none"}}/>))}</span>
+              <span style={{fontFamily:T.mono,fontSize:8,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{mem.map(playerNameOf).join(" / ")}</span>
               <span style={{fontFamily:T.mono,fontSize:14,fontWeight:500,marginLeft:"auto"}}>{teamScore(t)}</span></div>);})}
           {seatsN.filter(s=>!teamOf(s)).map(s=>{const act=s===turn&&!over;
             return(<div key={"solo"+s} style={{flex:"1 1 0",minWidth:0,display:"flex",alignItems:"center",gap:5,padding:"4px 7px",borderRadius:7,border:`1px solid ${act?colorOf(s):T.line}`,background:act?shade(colorOf(s),-0.72):T.panel,opacity:done.has(s)?.45:1}}>
               <span style={{width:8,height:8,borderRadius:2,background:colorOf(s)}}/>
+              <span style={{fontFamily:T.mono,fontSize:8,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{playerNameOf(s)}</span>
               <span style={{fontFamily:T.mono,fontSize:14,fontWeight:500,marginLeft:"auto"}}>{scoreOf(s)}</span></div>);})}
         </div>
       :
@@ -4396,19 +4439,20 @@ function App(){
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",fontFamily:T.mono,fontWeight:500,color:teamColor(t),marginBottom:4}}>
               <span style={{fontSize:12,letterSpacing:1}}>TEAM {t}</span><span style={{fontSize:20}}>{teamScore(t)}</span></div>
             {mem.map(s=>{const out=done.has(s),cur2=s===turn&&!over;return(<div key={s} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:6,fontSize:12,marginTop:2,opacity:out?.45:1,fontWeight:cur2?600:400}}>
-              <span style={{display:"flex",gap:5,alignItems:"center",minWidth:0}}><span style={{width:9,height:9,borderRadius:2,flexShrink:0,background:colorOf(s)}}/><span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{cur2?"▸ ":""}{CIVS[civOf(s)].name}{fertile===s&&!out?<span style={{color:"#8fae6b"}}> · fertile</span>:""}</span></span>
+              <span style={{display:"flex",gap:5,alignItems:"center",minWidth:0}}><span style={{width:9,height:9,borderRadius:2,flexShrink:0,background:colorOf(s)}}/><span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{cur2?"▸ ":""}{playerNameOf(s)} <span style={{color:T.muted}}>· {CIVS[civOf(s)].name}</span>{fertile===s&&!out?<span style={{color:"#8fae6b"}}> · fertile</span>:""}</span></span>
               <span style={{fontFamily:T.mono,color:T.muted,flexShrink:0}}>{scoreOf(s)}</span></div>);})}
           </div>);})}
         {seatsN.filter(s=>!teamOf(s)).map(s=>{const out=done.has(s),act=s===turn&&!over;
           return(<div key={"solo"+s} style={{flex:"1 1 150px",minWidth:0,...card,padding:"9px 12px",borderColor:act?colorOf(s):T.line,boxShadow:act?`0 0 0 1px ${colorOf(s)}`:"none",opacity:out?.5:1,display:"flex",flexDirection:"column",justifyContent:"center"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline"}}><span style={{fontFamily:T.mono,fontSize:12,color:T.muted,letterSpacing:1}}>SOLO</span><span style={{fontFamily:T.mono,fontWeight:500,fontSize:20}}>{scoreOf(s)}</span></div>
-            <span style={{display:"flex",gap:5,alignItems:"center",fontSize:12,fontWeight:500,marginTop:2,minWidth:0}}><span style={{width:9,height:9,borderRadius:2,flexShrink:0,background:colorOf(s)}}/><span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{CIVS[civOf(s)].name}</span></span></div>);})}
+            <span style={{display:"flex",gap:5,alignItems:"center",fontSize:12,fontWeight:500,marginTop:2,minWidth:0}}><span style={{width:9,height:9,borderRadius:2,flexShrink:0,background:colorOf(s)}}/><span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{playerNameOf(s)} <span style={{color:T.muted}}>· {CIVS[civOf(s)].name}</span></span></span></div>);})}
       </div>)
     :mob?
       <div style={{display:"flex",gap:4,marginBottom:6}}>
         {seatsN.map(s=>{const out=done.has(s),act=s===turn&&!over;const g=glyphOf(s);
-          return(<div key={s} title={CIVS[civOf(s)].name} style={{flex:"1 1 0",minWidth:0,display:"flex",alignItems:"center",justifyContent:"center",gap:4,padding:"3px 5px",borderRadius:6,border:`1px solid ${act?colorOf(s):T.line}`,background:act?shade(colorOf(s),-0.7):T.panel,opacity:out?.4:1}}>
+          return(<div key={s} title={`${playerNameOf(s)} · ${CIVS[civOf(s)].name}`} style={{flex:"1 1 0",minWidth:0,display:"flex",alignItems:"center",justifyContent:"center",gap:4,padding:"3px 5px",borderRadius:6,border:`1px solid ${act?colorOf(s):T.line}`,background:act?shade(colorOf(s),-0.7):T.panel,opacity:out?.4:1}}>
             <span style={{width:9,height:9,borderRadius:2,flexShrink:0,background:colorOf(s),display:"flex",alignItems:"center",justifyContent:"center",fontSize:6,color:"#0009"}}>{g}</span>
+            <span style={{fontFamily:T.mono,fontSize:8,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:62}}>{playerNameOf(s)}</span>
             <span style={{fontFamily:T.mono,fontSize:14,fontWeight:500}}>{scoreOf(s)}</span>
             {(()=>{const c=clockFor(s);if(!c)return null;
               return <span style={{fontFamily:T.mono,fontSize:10,fontWeight:500,color:c.color}}>{c.text}</span>;})()}
@@ -4421,10 +4465,10 @@ function App(){
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:8}}>
             <span style={{display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:500,minWidth:0,flex:"1 1 auto"}}>
               <span style={{width:11,height:11,borderRadius:3,flexShrink:0,background:colorOf(s),display:"flex",alignItems:"center",justifyContent:"center",fontSize:7,color:"#0009"}}>{g}</span>
-              <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{CIVS[civOf(s)].name}</span></span>
+              <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{playerNameOf(s)}</span></span>
             <span style={{fontFamily:T.mono,fontSize:14,fontWeight:500,flexShrink:0}}>{scoreOf(s)}</span></div>
           <div style={{display:"flex",justifyContent:"space-between",gap:6,alignItems:"baseline",marginTop:2}}>
-            <span style={{fontSize:10,color:T.muted,fontFamily:T.mono,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{PIECE_IDS.length*copies-placed(s)} left{out?" · out":""}{fertile===s&&!out?<span style={{color:"#8fae6b"}}> · fertile</span>:""}</span>
+            <span style={{fontSize:10,color:T.muted,fontFamily:T.mono,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{CIVS[civOf(s)].name} · {PIECE_IDS.length*copies-placed(s)} left{out?" · out":""}{fertile===s&&!out?<span style={{color:"#8fae6b"}}> · fertile</span>:""}</span>
             {(()=>{const c=clockFor(s);if(!c)return null;
               return <span style={{fontFamily:T.mono,fontSize:12,fontWeight:500,flexShrink:0,color:c.color,
                 ...(act&&c.low&&!c.dead?{animation:"evchip 1s ease-in-out infinite"}:{})}}>{c.text}</span>;})()}
@@ -4438,23 +4482,16 @@ function App(){
         {eventFlash&&<><div style={{position:"absolute",inset:-3,borderRadius:13,pointerEvents:"none",zIndex:6,boxShadow:`inset 0 0 0 3px ${EVT_COLOR[eventFlash.id]||T.accent}, 0 0 22px 1px ${EVT_COLOR[eventFlash.id]||T.accent}`,animation:"evglow 1.7s ease-out forwards"}}/>
           <div style={{position:"absolute",top:8,left:8,zIndex:7,pointerEvents:"none",fontFamily:T.mono,fontSize:12,letterSpacing:1.5,padding:"4px 10px",borderRadius:7,background:"rgba(0,0,0,.6)",color:"#fff",animation:"evchip 1.8s ease-out forwards"}}>{eventFlash.name.toUpperCase()}</div></>}
         {isCube?
-          <div onMouseLeave={cubeMouseLeave} onContextMenu={e=>e.preventDefault()} onPointerDown={cubePointerDown}
+          <div onMouseLeave={cubeMouseLeave} onContextMenu={e=>e.preventDefault()} onPointerDown={cubePointerDown} onPointerMove={cubePointerMove} onClick={cubeStageClick}
             style={{position:"relative",width:"100%",maxWidth:cubeStagePx,aspectRatio:"1",margin:"0 auto",perspective:cubeStagePx*2.2,cursor:cubeGrab?"grabbing":"default",touchAction:"pan-y",userSelect:"none"}}>
             {eventFlash&&<div style={{position:"absolute",inset:8,borderRadius:"50%",pointerEvents:"none",zIndex:8,boxShadow:`inset 0 0 0 3px ${EVT_COLOR[eventFlash.id]||T.accent},0 0 28px ${EVT_COLOR[eventFlash.id]||T.accent}`,animation:"evglow 1.7s ease-out forwards"}}/>}
             <div className="petri-board-cells" ref={cubeStageRef} style={{position:"absolute",left:"50%",top:"50%",width:cubeFacePx,height:cubeFacePx,transformStyle:"preserve-3d",
               transform:`translate(-50%,-50%) rotateX(${cubeRot.x}deg) rotateY(${cubeRot.y}deg)`,transition:cubeGrab?"none":"transform .18s ease-out"}}>
               {CUBE_FACE_IDS.map(face=>{const half=cubeFacePx/2,tf=face==="F"?`translateZ(${half}px)`:face==="B"?`rotateY(180deg) translateZ(${half}px)`:face==="R"?`rotateY(90deg) translateZ(${half}px)`:face==="L"?`rotateY(-90deg) translateZ(${half}px)`:face==="U"?`rotateX(90deg) translateZ(${half}px)`:`rotateX(-90deg) translateZ(${half}px)`;
-                // Every face stays mounted through the whole turn; backfaceVisibility hides
-                // the three genuinely-behind faces for free, so nothing pops or "freezes"
-                // mid-rotation. Only a clearly front-facing face takes clicks/hover, so an
-                // edge-on sliver at the silhouette can't steal a placement meant for the front.
-                // Any face you can actually see is clickable — not just the one the
-                // rotation math calls "front". 3D hit-testing routes each click to the
-                // face physically nearest the cursor, so pointing at a side and clicking
-                // it just works, even when two faces are almost equally head-on.
-                const faceLive=face===cubeFront||(!!cubeFacing&&cubeFacing[face]>0.04);
+                // Faces are visual only. The stage ray-casts the pointer onto the
+                // cube, avoiding transformed-DOM hit-testing failures at seams.
                 return <div key={face} style={{position:"absolute",inset:0,display:"grid",gridTemplateColumns:`repeat(${cubeTopo.N},1fr)`,gridTemplateRows:`repeat(${cubeTopo.N},1fr)`,gap:1,padding:1,
-                  pointerEvents:faceLive?"auto":"none",background:BT.grid,border:`1px solid ${BT.line}`,borderRadius:4,boxShadow:`inset 0 0 0 1px ${BT.line},0 0 20px rgba(0,0,0,.2)`,transform:tf,backfaceVisibility:"hidden",overflow:"hidden"}}>
+                  pointerEvents:"none",background:BT.grid,border:`1px solid ${BT.line}`,borderRadius:4,boxShadow:`inset 0 0 0 1px ${BT.line},0 0 20px rgba(0,0,0,.2)`,transform:tf,backfaceVisibility:"hidden",overflow:"hidden"}}>
                   {/* Cells are only drawn for faces you can see. The 2-3 faces turned away
                       from you are skipped entirely (they're invisible behind the cube), which
                       roughly halves the work done on every hover-move — the main lag source.
@@ -4588,19 +4625,19 @@ function App(){
       return <div style={overlay}><div style={{...card,padding:"28px 34px 30px",textAlign:"center",minWidth:300,maxWidth:390,borderColor:wColor,boxShadow:`0 0 40px ${wColor}55`,position:"relative"}}>
         <button onClick={()=>setOverHidden(true)} title="View the board" style={{...ghostBtn,position:"absolute",top:10,right:10,padding:"4px 10px"}}>close</button>
         <div style={{fontFamily:T.display,fontWeight:600,fontSize:34,letterSpacing:3,color:won||!anyHuman?wColor:T.muted,marginBottom:2}}>{status}</div>
-        <div style={{fontFamily:T.display,fontSize:24,margin:"4px 0 4px",color:wColor}}>{winTeam?`Team ${winTeam} takes the dish`:`${CIVS[civOf(winner)].name} takes the dish`}</div>
+        <div style={{fontFamily:T.display,fontSize:24,margin:"4px 0 4px",color:wColor}}>{winTeam?`Team ${winTeam} takes the dish`:`${playerNameOf(winner)} takes the dish`}</div>
         <div style={{fontSize:14,color:T.ink,marginBottom:16,lineHeight:1.5}}>{line}</div>
         {teamList.length?<div style={{display:"grid",gap:8,marginBottom:20}}>{teamList.slice().sort((a,b)=>teamScore(b)-teamScore(a)).map(t=>(
           <div key={t} style={{border:`1px solid ${teamColor(t)}`,borderRadius:8,padding:"8px 12px",opacity:t===winTeam?1:.6}}>
             <div style={{display:"flex",justifyContent:"space-between",fontFamily:T.mono,fontSize:14,fontWeight:500,marginBottom:4,color:teamColor(t)}}><span>Team {t}</span><b>{teamScore(t)}</b></div>
             {seatsN.filter(s=>teamOf(s)===t).map(s=>(<div key={s} style={{display:"flex",justifyContent:"space-between",fontFamily:T.mono,fontSize:12}}>
-              <span style={{display:"flex",gap:7,alignItems:"center"}}><span style={{width:10,height:10,borderRadius:3,background:colorOf(s)}}/>{CIVS[civOf(s)].name}</span><span style={{color:T.muted}}>{scoreOf(s)}</span></div>))}
+              <span style={{display:"flex",gap:7,alignItems:"center"}}><span style={{width:10,height:10,borderRadius:3,background:colorOf(s)}}/>{playerNameOf(s)} <span style={{color:T.muted}}>· {CIVS[civOf(s)].name}</span></span><span style={{color:T.muted}}>{scoreOf(s)}</span></div>))}
           </div>))}
           {seatsN.filter(s=>!teamOf(s)).length>0&&seatsN.filter(s=>!teamOf(s)).sort((a,b)=>scoreOf(b)-scoreOf(a)).map(s=>(
-            <div key={s} style={{display:"flex",justifyContent:"space-between",fontFamily:T.mono,fontSize:14,padding:"0 12px"}}><span style={{display:"flex",gap:7,alignItems:"center"}}><span style={{width:10,height:10,borderRadius:3,background:colorOf(s)}}/>{CIVS[civOf(s)].name}</span><b>{scoreOf(s)}</b></div>))}
+            <div key={s} style={{display:"flex",justifyContent:"space-between",fontFamily:T.mono,fontSize:14,padding:"0 12px"}}><span style={{display:"flex",gap:7,alignItems:"center"}}><span style={{width:10,height:10,borderRadius:3,background:colorOf(s)}}/>{playerNameOf(s)} <span style={{color:T.muted}}>· {CIVS[civOf(s)].name}</span></span><b>{scoreOf(s)}</b></div>))}
         </div>
         :<div style={{display:"grid",gap:6,marginBottom:20}}>{standings.map((s,i)=>(<div key={s} style={{display:"flex",justifyContent:"space-between",gap:24,fontFamily:T.mono,fontSize:14,opacity:i===0?1:.6}}>
-          <span style={{display:"flex",gap:8,alignItems:"center"}}><span style={{width:6,textAlign:"right"}}>{i+1}</span><span style={{width:11,height:11,borderRadius:3,background:colorOf(s)}}/>{CIVS[civOf(s)].name}</span><b>{scoreOf(s)}</b></div>))}</div>}
+          <span style={{display:"flex",gap:8,alignItems:"center"}}><span style={{width:6,textAlign:"right"}}>{i+1}</span><span style={{width:11,height:11,borderRadius:3,background:colorOf(s)}}/>{playerNameOf(s)} <span style={{color:T.muted}}>· {CIVS[civOf(s)].name}</span></span><b>{scoreOf(s)}</b></div>))}</div>}
         {rankedMatch&&rankedMatch.delta!==null&&<div style={{padding:"11px 13px",borderRadius:9,background:T.cell,border:`1px solid ${rankedMatch.delta>=0?"#75c39a":"#ef7e88"}`,margin:"-8px 0 16px",fontFamily:T.mono}}>
           <div style={{fontSize:10,color:T.muted}}>{rankedMatch.mode.toUpperCase()} RATING</div><div style={{fontSize:20,fontWeight:500,color:rankedMatch.delta>=0?"#75c39a":"#ef7e88"}}>{rankedMatch.delta>=0?"+":""}{rankedMatch.delta} <span style={{fontSize:14,color:T.ink}}>→ {rankedMatch.newMmr}</span></div><div style={{fontSize:10,color:T.muted}}>{rankedMatch.newRank}</div></div>}
         <div style={{display:"flex",gap:8,justifyContent:"center"}}>{rankedMatch?<button onClick={()=>{setRankedMatch(null);setQueue(null);setScreen("online");}} style={primaryBtn}>Ranked lobby</button>:<button onClick={startGame} style={primaryBtn}>Play again</button>}<button onClick={()=>{setDaily(null);setDailyInfo(null);setRankedMatch(null);setScreen("home");}} style={{...miniBtn,padding:"11px 18px"}}>Main menu</button></div>
