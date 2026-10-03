@@ -91,7 +91,7 @@ const CIVS = {
   lithuania:{name:"Lithuania",region:"Baltic Europe",color:"#E0A92E"},
   guatemala:{name:"Guatemala",region:"Central America",color:"#1AA086"},
   colombia:{name:"Colombia",region:"South America",color:"#2E6FB0"},
-  tonga:{name:"Tonga",region:"Polynesia",color:"#C13B62"},
+  new_zealand:{name:"New Zealand",region:"Polynesia",color:"#C13B62"},
   malta:{name:"Malta",region:"Mediterranean",color:"#BF9130"},
   dominican:{name:"Dominican Republic",region:"Caribbean",color:"#D45A9A"},
   senegal:{name:"Senegal",region:"West Africa",color:"#9DB833"},
@@ -114,7 +114,7 @@ const TRAIT = {
   lithuania:["Trailblazer","the Grand Duchy of Lithuania was once one of medieval Europe's largest realms, so it begins with a second outpost planted out toward mid-board"],
   guatemala:["Long Count","the Maya tracked time in vast turning cycles, so once per game the great cycle comes round and it places two pieces in a single turn"],
   colombia:["Biodiversity","Colombia is one of the most biodiverse places on earth, home to more bird species than any nation, so its colony never stops living: every third piece it plays, its birds carry a seed out past the colony edge and a free square takes root there, opening a whole new front"],
-  tonga:["Big Hits","Tonga's rugby giants hit hardest, so it scores +1 point for every 5-square piece it places"],
+  new_zealand:["Big Hits","New Zealand's rugby giants hit hardest, so it scores +1 point for every 5-square piece it places"],
   malta:["The Great Siege","Malta withstood the Great Siege and raised Valletta from its rubble, so once rivals press in it breaks up to 5 enemy squares in a chain and raises them as its own ramparts, which score for Malta and anchor its growth like its own colour"],
   dominican:["Merengue","the Dominican merengue never stops moving, so it scores 1 bonus point for every 4 pieces it places"],
   senegal:["Baobab","Senegal's baobab, the tree of life, spreads wide, so it scores 1 bonus point for every long, stretched piece it plays (4+ cells in a line)"],
@@ -2170,7 +2170,7 @@ const CHALLENGES=[
   {id:"win_10",name:"Ten Growth Commandments",desc:"Win 10 ranked games.",test:s=>rankedWins(s)>=10,prog:s=>[Math.min(rankedWins(s),10),10]},
   {id:"civ_3",name:"Mi Gente, Mi Colony",desc:"Win ranked with 3 different countries.",test:s=>rankedCivs(s)>=3,prog:s=>[Math.min(rankedCivs(s),3),3]},
   {id:"civ_10",name:"International Cultures Anthem",desc:"Win ranked with 10 different countries.",test:s=>rankedCivs(s)>=10,prog:s=>[Math.min(rankedCivs(s),10),10]},
-  {id:"civ_all",name:"Around the Dish",desc:"Win ranked with all 20 countries.",test:s=>rankedCivs(s)>=20,prog:s=>[rankedCivs(s),20]},
+  {id:"civ_all",name:"Around the Dish",desc:"Win ranked with all 19 online-eligible countries.",test:s=>rankedCivs(s)>=19,prog:s=>[Math.min(rankedCivs(s),19),19]},
   {id:"map_5",name:"I've Grown Everywhere",desc:"Win on 5 different boards in any mode.",test:s=>mapWins(s)>=5,prog:s=>[Math.min(mapWins(s),5),5]},
   {id:"full_tray",name:"Spore Operator",desc:"Place all of your pieces in a game.",test:s=>s.allPieces>=1,prog:s=>[Math.min(s.allPieces,1),1]},
   {id:"streak_3",name:"Three Little Wins",desc:"Win 3 ranked games in a row.",test:s=>rankedBestStreak(s)>=3,prog:s=>[Math.min(rankedBestStreak(s),3),3]},
@@ -2749,7 +2749,7 @@ function App(){
     {kind:"human",civ:"guatemala",brain:"normal",power:"seed",team:0},
     {kind:"cpu",civ:"kyrgyzstan",brain:"normal",botMmr:1000,power:"seed",team:0},
     {kind:"human",civ:"botswana",brain:"normal",power:"seed",team:0},
-    {kind:"human",civ:"tonga",brain:"normal",power:"seed",team:0}]);
+    {kind:"human",civ:"new_zealand",brain:"normal",power:"seed",team:0}]);
   const [playerNames,setPlayerNames]=useState({}); // frozen display names for the active match
   const [teamMode,setTeamMode]=useState(false); // when on, seats share a team (see teamOf/matesOf)
   const [civPick,setCivPick]=useState(null);    // which dropdown is open: "<seat>:<field>", or null
@@ -3053,7 +3053,9 @@ function App(){
   useEffect(()=>{if(!pendingStart)return;setPendingStart(false);startGame();},[pendingStart]); // eslint-disable-line
 
   function launchRanked(wanted){const qMode=wanted==="any"?(Math.random()<.5?"blitz":"full"):wanted;
-    const rr=rankedRec(save,qMode),pool=[...CIV_IDS].sort(()=>Math.random()-.5),bans=pool.slice(0,3),allowed=pool.slice(3),pickedMap=ONLINE_MAP_IDS[Math.floor(Math.random()*ONLINE_MAP_IDS.length)];
+    // New Zealand is disabled in ranked while Big Hits is being rebalanced.
+    const onlineCivs=CIV_IDS.filter(id=>id!=="new_zealand");
+    const rr=rankedRec(save,qMode),pool=[...onlineCivs].sort(()=>Math.random()-.5),bans=pool.slice(0,3),allowed=pool.slice(3),pickedMap=ONLINE_MAP_IDS[Math.floor(Math.random()*ONLINE_MAP_IDS.length)];
     const rivalSeed=`${Date.now()}:${qMode}`,rivals=[0,1,2].map((_,i)=>({name:botNameFor(i,rivalSeed),mmr:Math.max(100,Math.round(rr.mmr+(Math.random()-.5)*360))}));
     const powersOn=false,powerBans=[],allowedPowers=POWER_IDS;
     setDraftPick(null);setDraftPower(null);setDraftTick(0);setRankedDraft({mode:qMode,mapId:pickedMap,bans,allowed,rivals,powersOn,powerBans,allowedPowers,startMmr:rr.mmr,draftStarted:Date.now()});setQueue(null);setScreen("rankedDraft");}
@@ -3741,7 +3743,7 @@ function App(){
 
   const playerNameOf=s=>playerNames[s]||(seats[s-1]?.kind==="human"?(s===1?displayName(save):`Player ${s}`):botNameFor(s-1,`${mapId}:${civOf(s)}:${s}`));
   const scoreOf=s=>{let sq=0;for(let r=0;r<N;r++)for(let c=0;c<BW;c++)if(board[r][c]===s)sq++;if(caravan&&caravan.seat===s)sq++;for(const f of floods)if(f.seat===s)sq+=f.cells.length;for(const f of forts)if(f.seat===s)sq+=f.cells.length;for(const t of towers)if(t.seat===s)sq+=t.cells.filter(([r,c])=>board[r][c]===s).length;sq+=eruptScore[s]||0;sq+=(wordDone[s]||0)*2;const u=used[s]||{};const tot=Object.values(u).reduce((a,b)=>a+b,0);const all=tot===PIECE_IDS.length*copies;let b=0;if(all){b+=15;if(last[s]==="mono")b+=5;}
-    if(oTraits&&civOf(s)==="tonga"){let pent=0;for(const id of Object.keys(u))if(PSIZE[id]===5)pent+=u[id];b+=pent;}
+    if(oTraits&&civOf(s)==="new_zealand"){let pent=0;for(const id of Object.keys(u))if(PSIZE[id]===5)pent+=u[id];b+=pent;}
     if(oTraits&&civOf(s)==="dominican")b+=Math.floor(tot/4);
     if(oTraits&&civOf(s)==="senegal"){let lng=0;for(const id of Object.keys(u))if(PLONG.has(id))lng+=u[id];b+=lng;}
     return sq+b;};
@@ -4344,7 +4346,7 @@ function App(){
         status:"Applied at the start of the game."},
       colombia:{tag:"BIODIVERSITY",desc:"Colombia holds more bird species than any nation. Every third piece you play, a seed is carried past your colony edge and a free square takes root there.",
         status:tot?`Next sprout in ${3-(tot%3)} piece${3-(tot%3)===1?"":"s"}.`:"Sprouts on your 3rd piece."},
-      tonga:{tag:"BIG HITS",desc:"Tonga's rugby giants hit hardest: every 5-square piece you place is worth a bonus point at scoring.",
+      new_zealand:{tag:"BIG HITS",desc:"New Zealand's rugby giants hit hardest: every 5-square piece you place is worth a bonus point at scoring.",
         status:`${pent} five-square piece${pent===1?"":"s"} placed, +${pent} so far.`},
       dominican:{tag:"MERENGUE",desc:"The merengue never stops moving: you score a bonus point for every 4 pieces you place.",
         status:`${tot} placed, +${Math.floor(tot/4)} so far.`},
