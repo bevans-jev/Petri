@@ -2748,7 +2748,17 @@ function App(){
   const [peers,setPeers]=useState([]);            // presence list [{id,name,joined}], oldest first
   const chanRef=useRef(null);const netRev=useRef(0);const remoteSig=useRef("");
   const applyRemoteRef=useRef(null);const resendRef=useRef(null);const lobbyRecvRef=useRef(null);
-  const [codeDraft,setCodeDraft]=useState({clock:"blitz",code:"",format:"ffa",mapId:"open",powers:true});
+  const decideRef=useRef(null);const closeRef=useRef(null);const metaRef=useRef(null);const lastAct=useRef(Date.now());
+  const [codeNotice,setCodeNotice]=useState(null);   // popup on the online screen: {title,msg,joinCode?}
+  const [goneIds,setGoneIds]=useState(()=>new Set()); // tabs that explicitly left this match (no rejoining)
+  const [myCiv,setMyCiv]=useState("random");          // culture picked in a private lobby
+  const [netBanner,setNetBanner]=useState("");        // in-game notice, e.g. "X left, a bot took over"
+  // Private lobby, owned by its host and mirrored to everyone:
+  // {host, seats:[{t:"player",id}|{t:"open"}|{t:"bot"}|{t:"vacant"} x4], clock, mapId, traits, teams}
+  const [lobbyCfg,setLobbyCfg]=useState(null);
+  const lobbyCfgRef=useRef(null);lobbyCfgRef.current=lobbyCfg;
+  const seenRef=useRef(new Set());const reqRef=useRef(null);const toLobbyRef=useRef(null);const peersRef=useRef([]);
+  const [codeDraft,setCodeDraft]=useState({clock:"blitz",code:"",format:"ffa",mapId:"open",traits:true});
   const [rankedDraft,setRankedDraft]=useState(null); // match found: bans/map are known, player chooses culture
   const [draftPick,setDraftPick]=useState(null);     // highlighted only; permanent after Lock in
   const [draftPower,setDraftPower]=useState(null);
@@ -2986,14 +2996,15 @@ function App(){
   const glyphOf=useCallback(s=>{if(cbMode)return GLYPHS[(s-1)%4]; // accessible mode: every seat always carries its shape
     const c=civOf(s);let dup=false;for(let i=1;i<=count;i++)if(i!==s&&seats[i-1].civ===c)dup=true;return dup?GLYPHS[(s-1)%4]:null;},[seats,count,civOf,cbMode]);
   const isFirst=useCallback(s=>!used[s]||Object.keys(used[s]).length===0,[used]);
-  const curHuman=()=>seats[turn-1]?.kind==="human"&&(!net||seats[turn-1].owner===tabId);
-  // Online: which seats this tab is allowed to act for.
-  const amActingHost=()=>{if(!net)return true;const present=new Set(peers.map(p=>p.id));
+  const curHuman=()=>seats[turn-1]?.kind==="human"&&(!net||(!net.spectator&&seats[turn-1].owner===tabId));
+  // Online: which seats this tab is allowed to act for. Spectators never act.
+  const amActingHost=()=>{if(!net)return true;if(net.spectator)return false;
+    const present=new Set(peers.map(p=>p.id).filter(id=>!goneIds.has(id)));
     const owners=seats.slice(0,count).map(x=>x.owner).filter(o=>o&&present.has(o));
-    return owners.length?owners[0]===tabId:(peers[0]?.id===tabId);};
-  const controls=s=>{if(!net)return true;const x=seats[s-1];if(!x)return false;
+    return owners[0]===tabId;};
+  const controls=s=>{if(!net)return true;if(net.spectator)return false;const x=seats[s-1];if(!x)return false;
     return x.kind==="cpu"?amActingHost():x.owner===tabId;};
-  const isMine=s=>seats[s-1]?.kind==="human"&&(!net||seats[s-1].owner===tabId);
+  const isMine=s=>seats[s-1]?.kind==="human"&&(!net||(!net.spectator&&seats[s-1].owner===tabId));
   const oPowers=opts.powers,oTraits=opts.traits;
   const evtEnabled=EVENT_IDS.filter(k=>evtPick[k]);const oEvents=opts.events&&evtEnabled.length>0;
   const evtDelay=n=>n*2+Math.floor(Math.random()*n*2)+1;
@@ -3054,35 +3065,126 @@ function App(){
   const flash=m=>{setToast(m);clearTimeout(tT.current);tT.current=setTimeout(()=>setToast(""),2000);};
 
   // ---- Online: one Realtime channel per match code (lobby + game) ----
+  // A lobby starts "checking": we join the channel silently, look at who is
+  // already there, and only then become a player, a spectator, or bounce back
+  // with a popup (code taken / no such lobby).
   const netCode=(net&&net.code)||(codeLobby&&!codeLobby.error&&codeLobby.code)||null;
   useEffect(()=>{if(!netCode)return;
     const ch=PETRI_SUPABASE.channel("petri-match:"+netCode.toLowerCase(),{config:{presence:{key:tabId},broadcast:{self:false}}});
-    const joined=Date.now();
-    ch.on("presence",{event:"sync"},()=>{const st=ch.presenceState();
-      setPeers(Object.entries(st).map(([id,arr])=>({id,name:(arr[0]&&arr[0].name)||"Player",joined:(arr[0]&&arr[0].joined)||0}))
-        .sort((a,b)=>a.joined-b.joined||(a.id<b.id?-1:1)));});
+    const joined=Date.now();let decided=false;
+    const readPeers=()=>Object.entries(ch.presenceState()).map(([id,arr])=>{const m=arr[0]||{};
+      return{id,name:m.name||"Player",joined:m.joined||0,role:m.role||"player",phase:m.phase||"lobby",civ:m.civ||"random"};})
+      .sort((a,b)=>a.joined-b.joined||(a.id<b.id?-1:1));
+    ch.on("presence",{event:"sync"},()=>{setPeers(readPeers());if(!netRef.current)lastAct.current=Date.now();});
     ch.on("broadcast",{event:"state"},({payload})=>{if(applyRemoteRef.current)applyRemoteRef.current(payload);});
     ch.on("broadcast",{event:"hello"},()=>{if(resendRef.current)resendRef.current();});
     ch.on("broadcast",{event:"lobby"},({payload})=>{if(lobbyRecvRef.current)lobbyRecvRef.current(payload);});
-    ch.subscribe(async status=>{if(status!=="SUBSCRIBED")return;
-      await ch.track({name:displayName(save),joined});
-      ch.send({type:"broadcast",event:"hello",payload:{}});});   // ask for the current game, if one is running (rejoin)
-    chanRef.current=ch;netRev.current=0;remoteSig.current="";
-    return()=>{if(chanRef.current===ch)chanRef.current=null;PETRI_SUPABASE.removeChannel(ch);setPeers([]);};
+    ch.on("broadcast",{event:"leave"},({payload})=>{if(payload&&payload.id)setGoneIds(s=>new Set([...s,payload.id]));});
+    ch.on("broadcast",{event:"req"},({payload})=>{if(reqRef.current)reqRef.current(payload);});
+    ch.on("broadcast",{event:"tolobby"},()=>{if(toLobbyRef.current)toLobbyRef.current();});
+    ch.subscribe(status=>{
+      if((status==="CHANNEL_ERROR"||status==="TIMED_OUT")&&!decided){decided=true;
+        if(!netRef.current){setCodeLobby(null);setCodeNotice({title:"Couldn't connect",msg:"PETRI couldn't reach the match server. Check your connection and try again."});}return;}
+      if(status!=="SUBSCRIBED")return;
+      // give the server a moment to deliver who is already here before deciding
+      setTimeout(()=>{if(decided)return;decided=true;
+        if(decideRef.current)decideRef.current(readPeers().filter(p=>p.id!==tabId),ch,joined);},1200);});
+    const bye=()=>{try{ch.send({type:"broadcast",event:"leave",payload:{id:tabId}});}catch(e){}};
+    window.addEventListener("pagehide",bye);
+    chanRef.current=ch;netRev.current=0;remoteSig.current="";metaRef.current=null;lastAct.current=Date.now();setGoneIds(new Set());seenRef.current=new Set();
+    return()=>{window.removeEventListener("pagehide",bye);if(chanRef.current===ch)chanRef.current=null;metaRef.current=null;
+      PETRI_SUPABASE.removeChannel(ch);setPeers([]);setLobbyCfg(null);};
   },[netCode]); // eslint-disable-line
-  const lobbyHost=!!(codeLobby&&!codeLobby.error&&peers.length&&peers[0].id===tabId);
-  // Lobby: the host's settings are mirrored to everyone waiting.
-  useEffect(()=>{if(!lobbyHost||!chanRef.current)return;const {clock,format,mapId:m,powers}=codeDraft;
-    chanRef.current.send({type:"broadcast",event:"lobby",payload:{clock,format,mapId:m,powers}});},[lobbyHost,codeDraft,peers.length]);
-  lobbyRecvRef.current=p=>{if(!lobbyHost)setCodeDraft(d=>({...d,clock:p.clock,format:p.format,mapId:p.mapId,powers:p.powers}));};
-  // Leaving the game screen (main menu etc.) leaves the match.
-  useEffect(()=>{if(net&&screen!=="game"&&screen!=="online")setNet(null);},[screen,net]);
+  decideRef.current=(others,ch,joined)=>{const lob=codeLobby;if(net||!lob||lob.status!=="checking")return;
+    const live=others.some(p=>p.phase==="game");
+    const fail=(title,msg,joinCode)=>{setCodeLobby(null);setCodeNotice({title,msg,joinCode});};
+    if(lob.intent==="create"&&others.length)return fail("Code already in use",`Someone is already using “${lob.code}”. You can join their ${live?"live match as a spectator":"lobby"} instead.`,lob.code);
+    if(lob.intent==="join"&&!others.length)return fail("No lobby found",`Nobody is using “${lob.code}” right now. Check the code with your friend, or create a lobby with it.`);
+    metaRef.current={name:displayName(save),joined,phase:"lobby",civ:myCiv};
+    ch.track(metaRef.current);
+    if(live)ch.send({type:"broadcast",event:"hello",payload:{}});   // ask the match to send us the board
+    if(lob.intent==="create"){seenRef.current=new Set([tabId]);
+      setLobbyCfg({host:tabId,seats:[{t:"player",id:tabId},{t:"open"},{t:"open"},{t:"open"}],clock:"blitz",mapId:"open",traits:true,teams:false});}
+    // a joiner keeps (or waits for) the host's copy, which arrives over the channel
+    setCodeLobby({...lob,status:"open",spectate:live,live});};
+  const retrack=patch=>{const ch=chanRef.current;if(!ch||!metaRef.current)return;metaRef.current={...metaRef.current,...patch};ch.track(metaRef.current);};
+  useEffect(()=>{retrack({civ:myCiv});},[myCiv]); // eslint-disable-line
+  useEffect(()=>{if(net&&screen==="game")retrack({phase:"game"});},[net,screen]); // eslint-disable-line
+  const sendLeave=()=>{const ch=chanRef.current;if(ch)ch.send({type:"broadcast",event:"leave",payload:{id:tabId}});};
+  // ---- Private lobby seats ----
+  // The host owns the four seats. If the host leaves, the first seated player
+  // still here takes over (then anyone left), so a lobby only dies when empty.
+  peersRef.current=peers;
+  const presentIds=new Set([...peers.map(p=>p.id),tabId]);   // we are always present to ourselves
+  const inLobby=!!(codeLobby&&codeLobby.status==="open"&&!net);
+  const cfgSeats=lobbyCfg?lobbyCfg.seats:[];
+  const effHost=!lobbyCfg?null:presentIds.has(lobbyCfg.host)?lobbyCfg.host
+    :((cfgSeats.find(s=>s.t==="player"&&presentIds.has(s.id))||{}).id||(peers[0]&&peers[0].id)||null);
+  const lobbyHost=inLobby&&!!lobbyCfg&&effHost===tabId;
+  const seatedIds=new Set(cfgSeats.filter(s=>s.t==="player").map(s=>s.id));
+  const lobbyWatchers=peers.filter(p=>!seatedIds.has(p.id));
+  const peerName=id=>(peers.find(p=>p.id===id)||{}).name||"Player";
+  const peerCiv=id=>id===tabId?myCiv:((peers.find(p=>p.id===id)||{}).civ||"random");
+  // Host: drop players who left (seat reopens) and seat newcomers in the first open seat.
+  useEffect(()=>{if(!lobbyHost||!lobbyCfg||!peers.length)return;
+    const seats=lobbyCfg.seats.map(s=>s.t==="player"&&!presentIds.has(s.id)?{t:"open"}:s);
+    const seated=new Set(seats.filter(s=>s.t==="player").map(s=>s.id));
+    for(const p of peers){if(seenRef.current.has(p.id))continue;seenRef.current.add(p.id);
+      if(seated.has(p.id))continue;const i=seats.findIndex(s=>s.t==="open");if(i>=0){seats[i]={t:"player",id:p.id};seated.add(p.id);}}
+    const next={...lobbyCfg,host:tabId,seats};
+    if(JSON.stringify(next)!==JSON.stringify(lobbyCfg))setLobbyCfg(next);
+  },[lobbyHost,peers,lobbyCfg]); // eslint-disable-line
+  // Everyone else just remembers who has already been in this lobby, so a
+  // future host won't force someone who chose to watch back into a seat.
+  useEffect(()=>{if(inLobby&&!lobbyHost)peers.forEach(p=>seenRef.current.add(p.id));},[inLobby,lobbyHost,peers]);
+  // Safety net: if no host copy ever arrives, the longest-standing tab rebuilds the lobby.
+  useEffect(()=>{if(!inLobby||lobbyCfg)return;
+    const t=setTimeout(()=>{if(lobbyCfgRef.current)return;const ps=peersRef.current;if(!ps.length||ps[0].id!==tabId)return;
+      ps.forEach(p=>seenRef.current.add(p.id));
+      setLobbyCfg({host:tabId,seats:[0,1,2,3].map(i=>ps[i]?{t:"player",id:ps[i].id}:{t:"open"}),clock:"blitz",mapId:"open",traits:true,teams:false});},2500);
+    return()=>clearTimeout(t);},[inLobby,lobbyCfg]); // eslint-disable-line
+  // The host mirrors the lobby to everyone whenever it changes or someone arrives.
+  useEffect(()=>{if(!lobbyHost||!lobbyCfg||!chanRef.current)return;lastAct.current=Date.now();
+    chanRef.current.send({type:"broadcast",event:"lobby",payload:lobbyCfg});},[lobbyHost,lobbyCfg,peers.length]);
+  lobbyRecvRef.current=p=>{lastAct.current=Date.now();if(!p||!Array.isArray(p.seats))return;
+    if(lobbyHost&&p.host!==tabId&&tabId<p.host)return;   // two hosts at once: the lower id keeps it
+    setLobbyCfg(p);};
+  // Seat requests ("sit here", "let me watch") go to the host, who applies them.
+  reqRef.current=r=>{if(!lobbyHost||!lobbyCfg||!r||!r.id)return;const seats=lobbyCfg.seats.slice();
+    const unseat=()=>{for(let j=0;j<4;j++)if(seats[j].t==="player"&&seats[j].id===r.id)seats[j]={t:"open"};};
+    if(r.type==="sit"){if(!seats[r.seat]||seats[r.seat].t!=="open")return;unseat();seats[r.seat]={t:"player",id:r.id};}
+    else if(r.type==="watch")unseat();else return;
+    seenRef.current.add(r.id);setLobbyCfg({...lobbyCfg,seats});};
+  const lobbyReq=r=>{const msg={...r,id:tabId};if(lobbyHost)reqRef.current(msg);
+    else if(chanRef.current)chanRef.current.send({type:"broadcast",event:"req",payload:msg});};
+  const setSeatType=(i,t)=>{if(!lobbyHost||!lobbyCfg||lobbyCfg.seats[i].t==="player")return;
+    setLobbyCfg({...lobbyCfg,seats:lobbyCfg.seats.map((s,j)=>j===i?{t}:s)});};
+  const setLobbyOpt=patch=>{if(lobbyHost&&lobbyCfg)setLobbyCfg({...lobbyCfg,...patch});};
+  const lobbyClock=(lobbyCfg&&lobbyCfg.clock)||"blitz";
+  // After a match the host can bring everyone (spectators too) back to the lobby.
+  const returnToLobby=()=>{const code=net&&net.code;if(!code)return;retrack({phase:"lobby"});lastAct.current=Date.now();setGoneIds(new Set());
+    setCodeLobby({code,intent:"join",status:"open",spectate:false,live:false});setNet(null);setOnlineTab("code");setScreen("online");};
+  toLobbyRef.current=()=>{if(net)returnToLobby();};
+  const hostBackToLobby=()=>{if(chanRef.current)chanRef.current.send({type:"broadcast",event:"tolobby",payload:{}});returnToLobby();};
+  // Leaving the game screen (main menu, quit) leaves the match for good.
+  useEffect(()=>{if(net&&screen!=="game"&&screen!=="online"){sendLeave();setNet(null);}},[screen,net]); // eslint-disable-line
+  useEffect(()=>{setNetBanner("");},[net]);
+  // Leaving online play entirely: strip the online-only seat fields (owner,
+  // player name) so the local setup screen gets plain seats back.
+  useEffect(()=>{if(!net&&!codeLobby)setSeats(list=>list.some(x=>x.owner||x.playerName)?list.map(({owner,playerName,...x})=>x):list);},[net,codeLobby]);
+  // Inactivity: an idle lobby closes after 90 minutes, a match with no moves after 30.
+  const closeMatch=msg=>{if(net)sendLeave();setNet(null);setCodeLobby(null);setOnlineTab("code");setCodeNotice({title:"Closed for inactivity",msg});setScreen("online");};
+  closeRef.current=closeMatch;
+  useEffect(()=>{if(!netCode)return;
+    const id=setInterval(()=>{const inGame=!!netRef.current,idle=Date.now()-lastAct.current;
+      if(idle>(inGame?30:90)*60000&&closeRef.current)closeRef.current(inGame?"This match closed after 30 minutes without a move.":"This lobby closed after 90 minutes of inactivity.");},60000);
+    return()=>clearInterval(id);},[netCode]);
 
   const netSnap=()=>({board,specials:[...specials],starts,copies,used,last,turn,step,done:[...done],charges,over,overSeed,
     infect:[...infect],traitUsed,floods,caravan,forts,towers,lastShape,eruptScore,scribe,wordDone,reserved,
     clocks:live.current.clocks||clocks,seats,count,mapId,mode,opts,tc,teamMode,playerNames});
   const sendState=()=>{const ch=chanRef.current;if(!ch)return;const snap=netSnap(),sig=JSON.stringify(snap);
-    remoteSig.current=sig;netRev.current++;
+    remoteSig.current=sig;netRev.current++;lastAct.current=Date.now();
     ch.send({type:"broadcast",event:"state",payload:{rev:netRev.current,from:tabId,snap,toast,
       turnAgo:Math.max(0,Date.now()-(live.current.turnStart||Date.now()))}});};
   // Broadcast whenever the shared game state changes here (i.e. we just acted).
@@ -3097,8 +3199,8 @@ function App(){
     // Revisions settle the rare case of two tabs sending at once: higher wins, ties go to the lower id.
     if(p.rev<netRev.current||(p.rev===netRev.current&&p.from>tabId))return;
     const entering=screen!=="game"||!net;
-    if(entering&&!(codeLobby&&!codeLobby.error))return;   // only tabs waiting in this lobby get pulled in
-    netRev.current=p.rev;remoteSig.current=JSON.stringify(s);
+    if(entering&&!(codeLobby&&codeLobby.status==="open"))return;   // only tabs waiting in this lobby get pulled in
+    netRev.current=p.rev;remoteSig.current=JSON.stringify(s);lastAct.current=Date.now();
     const fresh=buildMap(s.mapId),b=s.board.map(r=>r.slice());
     if(fresh.board._cube)Object.defineProperty(b,"_cube",{value:fresh.board._cube,writable:false,enumerable:false});
     const sp=new Map(s.specials),dn=new Set(s.done),inf=new Set(s.infect),ts=Date.now()-(p.turnAgo||0);
@@ -3116,17 +3218,26 @@ function App(){
       setArmed(false);setCarnArmed(false);setBazaarPick(false);setMinerArmed(false);setAscentArmed(false);setLcArmed(false);setOkaArmed(false);
       setFloodPick([]);setCaravanMode(false);setSiegeMode(false);setSiegePick([]);setCastellArmed(false);setEruptPick(false);setPotArmed(false);setRuil(null);}
     if(!s.over)setOverHidden(false);
-    if(entering){setNet({code:codeLobby.code});setCodeLobby(null);setCodeMatchActive(true);setDaily(null);setDailyInfo(null);setRankedMatch(null);
+    if(entering){setNet({code:codeLobby.code,spectator:!!codeLobby.spectate||!s.seats.some(x=>x.owner===tabId)});setCodeLobby(null);setCodeMatchActive(true);setDaily(null);setDailyInfo(null);setRankedMatch(null);
       savedGame.current=null;setAskConcede(false);setPundo(null);
       zoomRef.current=1;panRef.current={x:0,y:0};setZoom(1);setPan({x:0,y:0});setCubeRot({x:-24,y:34});setScreen("game");}};
-  // A player who drops for 20s is handed to a Petri bot (run by the acting host).
+  // A player who leaves is handed to a Petri bot (run by the acting host): at
+  // once if they quit, after 10s if their connection just dropped. There is no
+  // rejoining: their seat stays a bot, and coming back with the code only spectates.
   useEffect(()=>{if(!net||screen!=="game"||over||!amActingHost())return;
-    const present=new Set(peers.map(p=>p.id));
-    const gone=seats.slice(0,count).map((x,i)=>x.kind==="human"&&x.owner&&!present.has(x.owner)?i:-1).filter(i=>i>=0);
-    if(!gone.length)return;
-    const t=setTimeout(()=>{setSeats(list=>list.map((x,i)=>gone.includes(i)&&x.kind==="human"?{...x,kind:"cpu",brain:"petri"}:x));
-      setStep(x=>x+1);flash("A player disconnected. A Petri bot takes their seat.");},20000);
-    return()=>clearTimeout(t);},[peers,net,screen,over,seats,count]); // eslint-disable-line
+    const present=new Set(peers.map(p=>p.id)),now=[],later=[];
+    seats.slice(0,count).forEach((x,i)=>{if(x.kind!=="human"||!x.owner||x.owner===tabId)return;
+      if(goneIds.has(x.owner))now.push(i);else if(!present.has(x.owner))later.push(i);});
+    const toBot=idx=>{setSeats(list=>list.map((x,i)=>idx.includes(i)&&x.kind==="human"?{...x,kind:"cpu",brain:"petri"}:x));setStep(x=>x+1);};
+    if(now.length){toBot(now);return;}
+    if(!later.length)return;
+    const t=setTimeout(()=>toBot(later),10000);return()=>clearTimeout(t);},[peers,goneIds,net,screen,over,seats,count]); // eslint-disable-line
+  // Tell everyone (not just the host) when a player's seat was handed to a bot.
+  const prevSeatsRef=useRef(null);
+  useEffect(()=>{const prev=prevSeatsRef.current;prevSeatsRef.current=seats;if(!net||!prev||screen!=="game")return;
+    const left=seats.map((x,i)=>prev[i]&&prev[i].kind==="human"&&x.kind==="cpu"&&prev[i].owner===x.owner&&x.owner!==tabId?i+1:0).filter(Boolean);
+    if(left.length)setNetBanner(`${left.map(s=>playerNames[s]||`Seat ${s}`).join(", ")} left the match. A Petri bot took over${left.length>1?" their seats":" their seat"}. You can keep playing or leave.`);
+  },[seats]); // eslint-disable-line
   const netHostKey=net?String(amActingHost()):"";
 
   // Launch today's daily: apply the date-derived setup, then start normally.
@@ -3165,16 +3276,31 @@ function App(){
     setRankedMatch({...rankedDraft,delta:null,newMmr:null});setRankedDraft(null);setGenerating(true);setPendingStart(true);}
   function joinQueue(qMode){setQueue({mode:qMode,startedAt:Date.now()});setQueueTick(0);}
   const generatedCode=()=>Array.from({length:4},()=>"ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[Math.floor(Math.random()*32)]).join("");
-  function openCodeLobby(){const raw=(codeDraft.code||generatedCode()).trim(),safe=raw.replace(/[^a-zA-Z0-9 _-]/g,"").replace(/\s+/g," ").slice(0,24);
+  // Create and Join are separate on purpose: Create refuses a code that is
+  // already live, Join refuses one nobody is using (see decideRef).
+  function openCodeLobby(intent,codeOverride){const typed=(codeOverride!=null?codeOverride:codeDraft.code).trim();
+    if(intent==="join"&&!typed){setCodeNotice({title:"Enter a code",msg:"Type the code your friend shared, then press Join."});return;}
+    const raw=typed||generatedCode(),safe=raw.replace(/[^a-zA-Z0-9 _-]/g,"").replace(/\s+/g," ").slice(0,24);
     const moderated=moderateName(safe,save);if(!safe||moderated.name!==safe){setCodeLobby({error:"That code cannot be used. Try a different phrase or generate a code."});return;}
-    setCodeDraft(d=>({...d,code:safe}));setCodeLobby({code:safe,humans:1,createdAt:Date.now(),owner:true});}
-  function startCodeMatch(){if(!codeLobby||!lobbyHost)return;const players=peers.slice(0,4),format=codeDraft.format,humanCount=players.length,needsFour=format==="rivals";if(humanCount<2||needsFour&&humanCount<4)return;const rr=rankedRec(save,codeDraft.clock),seatCount=format==="ffa"?humanCount:4,pool=[...CIV_IDS].sort(()=>Math.random()-.5).slice(0,seatCount);
-    const teamFor=i=>format==="rivals"?(i%2)+1:0;
-    setDaily(null);setDailyInfo(null);setRankedMatch(null);setMode("standard");setMapId(ONLINE_MAP_IDS.includes(codeDraft.mapId)?codeDraft.mapId:"open");setCount(seatCount);setTeamMode(format==="rivals");
-    setSeats(pool.map((c,i)=>({kind:i<humanCount?"human":"cpu",civ:c,brain:"petri",botMmr:Math.max(200,rr.mmr+(i%2?80:-80)),power:codeDraft.powers?POWER_IDS[i%POWER_IDS.length]:"seed",team:teamFor(i),
-      owner:i<humanCount?players[i].id:undefined,playerName:i<humanCount?players[i].name:undefined})));
-    setOpts({powers:!!codeDraft.powers,traits:true,events:false});setTc(codeDraft.clock==="blitz"?"blitz":"long");
-    setNet({code:codeLobby.code});netRev.current=0;remoteSig.current="";   // the channel stays open: same code
+    setCodeNotice(null);setCodeDraft(d=>({...d,code:safe}));setCodeLobby({code:safe,intent,status:"checking",createdAt:Date.now()});}
+  function startCodeMatch(){if(!codeLobby||!lobbyHost||!lobbyCfg)return;const cfg=lobbyCfg;
+    // Open seats block the start: each one must be a player, a bot or vacant.
+    const open=cfg.seats.map((s,i)=>s.t==="open"?i+1:0).filter(Boolean);
+    const inPlay=cfg.seats.filter(s=>s.t!=="vacant"),humans=inPlay.filter(s=>s.t==="player");
+    const msg=open.length?`Seat${open.length>1?"s":""} ${open.join(" and ")} ${open.length>1?"are":"is"} still open. Set ${open.length>1?"them":"it"} to Bot or Vacant, or wait for someone to sit down.`
+      :inPlay.length<2?"You need at least two seats in play. Set a seat to Bot, or wait for a friend to sit down."
+      :!humans.length?"At least one player has to be seated.":cfg.teams&&inPlay.length<4?"Teams needs all four seats filled with players or bots.":null;
+    if(msg){setCodeNotice({title:"Can't start yet",msg});return;}
+    const rr=rankedRec(save,cfg.clock),randCiv=()=>CIV_IDS[Math.floor(Math.random()*CIV_IDS.length)];
+    // Players keep the culture they picked in the lobby; "Random" and bot seats draw one.
+    const civFor=s=>{const c=s.t==="player"?peerCiv(s.id):"random";return CIVS[c]?c:randCiv();};
+    const next=inPlay.map((s,k)=>({kind:s.t==="player"?"human":"cpu",civ:civFor(s),brain:"petri",botMmr:Math.max(200,rr.mmr+(k%2?80:-80)),power:"seed",
+      team:cfg.teams?(k%2)+1:0,owner:s.t==="player"?s.id:undefined,playerName:s.t==="player"?peerName(s.id):undefined}));
+    while(next.length<4)next.push({kind:"cpu",civ:randCiv(),brain:"normal",botMmr:1000,power:"seed",team:0}); // keep 4 entries for the local setup screen
+    setDaily(null);setDailyInfo(null);setRankedMatch(null);setMode("standard");setMapId(ONLINE_MAP_IDS.includes(cfg.mapId)?cfg.mapId:"open");setCount(inPlay.length);setTeamMode(!!cfg.teams);
+    setSeats(next);
+    setOpts({powers:false,traits:cfg.traits!==false,events:false});setTc(cfg.clock==="blitz"?"blitz":"long");
+    setNet({code:codeLobby.code});remoteSig.current="";setGoneIds(new Set());   // the channel stays open: same code
     setCodeLobby(null);setCodeMatchActive(true);setGenerating(true);setPendingStart(true);}
   function devSetRating(mode,mmr){if(!isDev)return;setSave(s=>{const old=rankedRec(s,mode),next={...s,ranked:{...s.ranked,[mode]:{...old,mmr,peak:Math.max(old.peak||0,mmr)}}};return writeSave(next);});}
   useEffect(()=>{if(!queue)return;const limit=queue.mode==="any"?420:210;
@@ -3186,12 +3312,15 @@ function App(){
 
   function startGame(){let {board:b,specials:sp,starts:st,copies:cp}=buildMap(mapId);
     const nameSeed=crypto.randomUUID(),names={};let localHuman=0;
+    // Stored seat names only belong to online and ranked games. A local game
+    // must never inherit the names left on the seats by a previous online match.
+    const keepNames=!!(net||rankedMatch);
     for(let s=1;s<=count;s++){
-      const seat=seats[s-1];
+      const seat=seats[s-1],fixed=keepNames?seat.playerName:null;
       if(seat.kind==="human"){
         localHuman++;
-        names[s]=seat.playerName||(localHuman===1?displayName(save):`Player ${localHuman}`);
-      }else names[s]=seat.playerName||botNameFor(s-1,`${nameSeed}:${seat.civ}:${s}`);
+        names[s]=fixed||(localHuman===1?displayName(save):`Player ${localHuman}`);
+      }else names[s]=fixed||botNameFor(s-1,`${nameSeed}:${seat.civ}:${s}`);
     }
     setPlayerNames(names);
     const pw=opts.powers,tr=opts.traits;
@@ -3621,7 +3750,7 @@ function App(){
       if(anyMove(nb,uu,s,false,startOf(s),copies,{blk:blockedFor(s),mates:matesOf(s)})){flash("Long Count! The cycle turns, place one more piece.");busy.current=false;return;}}
     advance(s);setTimeout(()=>{busy.current=false;},80);}
   function concede(){const s=turn;const nd=new Set(done);nd.add(s);setDone(nd);setSel(null);setSelId(null);setTent(null);setTargeting(null);setArmed(false);setCarnArmed(false);setBazaarPick(false);setMinerArmed(false);setAscentArmed(false);setLcArmed(false);setOkaArmed(false);setFloodPick([]);setCaravanMode(false);setSiegeMode(false);setSiegePick([]);setCastellArmed(false);setEruptPick(false);setPotArmed(false);setRuil(null);flash(`${CIVS[civOf(s)].name} bends the knee.`);advance(s,nd);}
-  function replaceCodePlayer(){const s=turn,mmr=rankedRec(save,codeDraft.clock).mmr;setSeats(list=>list.map((seat,i)=>i===s-1?{...seat,kind:"cpu",brain:"petri",botMmr:mmr}:seat));setAskConcede(false);setSel(null);setSelId(null);setTent(null);flash(`${CIVS[civOf(s)].name} is now controlled by a ${botTierFor(mmr).label} Petri bot.`);setStep(x=>x+1);}
+  function replaceCodePlayer(){const s=turn,mmr=rankedRec(save,lobbyClock).mmr;setSeats(list=>list.map((seat,i)=>i===s-1?{...seat,kind:"cpu",brain:"petri",botMmr:mmr}:seat));setAskConcede(false);setSel(null);setSelId(null);setTent(null);flash(`${CIVS[civOf(s)].name} is now controlled by a ${botTierFor(mmr).label} Petri bot.`);setStep(x=>x+1);}
 
   function advance(from,doneSet){setTimeout(()=>{const L=live.current,n=L.count,dn=doneSet||L.done;let fired=false;
     if(oEvents&&!over){try{
@@ -4246,19 +4375,46 @@ function App(){
     <Crumb onBack={()=>{setQueue(null);setCodeLobby(null);setDevRankOpen(false);setScreen("home");}} step="Online play"/>
     <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:6,marginBottom:13}}>{[["ranked","Online"],["code","Private Match"]].map(([id,label])=><button key={id} onClick={()=>{setOnlineTab(id);setQueue(null);}} style={{...ghostBtn,padding:"10px 7px",borderColor:onlineTab===id?T.accent:T.line,color:onlineTab===id?T.accent:T.muted}}>{label}</button>)}</div>
     {onlineTab==="code"?<div>
-      <div style={{...card,padding:18,marginBottom:11,borderColor:"#a993df66",background:`linear-gradient(135deg,${T.panel},${shade("#a993df",-.9)})`}}><div style={{fontFamily:T.mono,fontSize:10,color:"#a993df",letterSpacing:1.8}}>PRIVATE · UNRANKED</div><div style={{fontFamily:T.display,fontSize:28,fontWeight:600,marginTop:2}}>Private Match</div><div style={{fontSize:12,color:T.muted,lineHeight:1.5,marginTop:4}}>Share one code, choose whether empty seats stay empty or receive PETRI bots, then play with no MMR changes. Traits stay on; events remain single-player beta.</div></div>
-      {!codeLobby||codeLobby.error?<div style={{...card,padding:15}}>{codeLobby?.error&&<div style={{padding:"8px 10px",border:`1px solid #ef7e8866`,borderRadius:7,color:"#ef7e88",fontSize:12,marginBottom:10}}>{codeLobby.error}</div>}
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))",gap:9}}>
-          <label style={{fontFamily:T.mono,fontSize:10,color:T.muted}}>CLOCK<select value={codeDraft.clock} onChange={e=>setCodeDraft(d=>({...d,clock:e.target.value}))} style={{...input,width:"100%",marginTop:4}}><option value="blitz">Blitz · 5 minutes</option><option value="full">Full · 15 minutes</option></select></label>
-          <label style={{fontFamily:T.mono,fontSize:10,color:T.muted}}>FORMAT<select value={codeDraft.format} onChange={e=>setCodeDraft(d=>({...d,format:e.target.value}))} style={{...input,width:"100%",marginTop:4}}><option value="ffa">No Fill</option><option value="together">Bot Fill</option><option value="rivals">Teams</option></select><span style={{display:"block",fontFamily:"'Hanken Grotesk',sans-serif",fontSize:10,lineHeight:1.35,marginTop:4}}>{codeDraft.format==="ffa"?"2–4 humans. Empty seats are removed.":codeDraft.format==="together"?"2–4 humans. PETRI fills every open seat.":"Four humans required. Two teams and no starting bots."}</span></label></div>
-        <label style={{display:"block",fontFamily:T.mono,fontSize:10,color:T.muted,marginTop:10}}>MATCH CODE<input value={codeDraft.code} maxLength={24} onChange={e=>setCodeDraft(d=>({...d,code:e.target.value}))} placeholder="type a shared phrase or generate one" style={{...input,width:"100%",marginTop:4}}/></label>
-        <div style={{display:"flex",gap:7,marginTop:10,flexWrap:"wrap"}}><button onClick={openCodeLobby} style={primaryBtn}>Create or join</button><button onClick={()=>setCodeDraft(d=>({...d,code:generatedCode()}))} style={ghostBtn}>Generate code</button></div></div>
-      :<div style={{...card,padding:16,borderColor:T.accent}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"start",gap:10,flexWrap:"wrap"}}><div><div style={{fontFamily:T.mono,fontSize:10,color:T.accent,letterSpacing:1.5}}>LOBBY CODE</div><div style={{fontFamily:T.display,fontSize:28,fontWeight:600,letterSpacing:2}}>{codeLobby.code}</div></div><span style={{fontFamily:T.mono,fontSize:10,color:lobbyHost?T.accent:T.muted}}>{!peers.length?"CONNECTING…":lobbyHost?"YOU ARE HOST":"WAITING FOR HOST"}</span></div>
-         <div style={{fontSize:11,color:T.muted,marginTop:6}}>Friends join by opening Online → Private Match and entering this same code.</div>
-        <div style={{display:"grid",gap:6,margin:"14px 0"}}>{[0,1,2,3].map(i=>{const humans=Math.min(4,peers.length),p=peers[i],bot=i>=humans&&codeDraft.format==="together";return <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"8px 10px",borderRadius:7,background:T.cell,fontFamily:T.mono,fontSize:10}}><span>{p?`${p.name}${p.id===tabId?" (you)":""}${i===0?" · host":""}`:bot?botNameFor(i-humans,codeLobby.code):`SEAT ${i+1}`}</span><span style={{color:p?"#75c39a":T.muted}}>{p?"connected":bot?"PETRI bot":codeDraft.format==="rivals"?"waiting for player":"left empty"}</span></div>;})}</div>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))",gap:9}}><label style={{fontFamily:T.mono,fontSize:10,color:T.muted}}>HOST MAP · 20/30 SEC<select disabled={!lobbyHost} value={codeDraft.mapId} onChange={e=>setCodeDraft(d=>({...d,mapId:e.target.value}))} style={{...input,width:"100%",marginTop:4}}>{ONLINE_MAP_IDS.map(id=><option key={id} value={id}>{MAPS[id].name}</option>)}</select></label><label style={{fontFamily:T.mono,fontSize:10,color:T.muted}}>POWERS · PRIVATE BETA<select disabled={!lobbyHost} value={codeDraft.powers?"on":"off"} onChange={e=>setCodeDraft(d=>({...d,powers:e.target.value==="on"}))} style={{...input,width:"100%",marginTop:4}}><option value="on">On</option><option value="off">Off</option></select></label></div>
-        <div style={{fontSize:10,color:T.muted,marginTop:10}}>Traits always on · events off · leavers become equally rated Petri bots · no MMR changes</div><div style={{display:"flex",gap:7,marginTop:12,flexWrap:"wrap"}}>{(()=>{const h=Math.min(4,peers.length),ready=lobbyHost&&h>=2&&(codeDraft.format!=="rivals"||h>=4);
-          return <button disabled={!ready} onClick={startCodeMatch} style={{...primaryBtn,opacity:ready?1:.45}}>{!lobbyHost?"Waiting for host to start":h<2?"Waiting for a friend to join":codeDraft.format==="rivals"&&h<4?`Waiting for ${4-h} player${4-h===1?"":"s"}`:codeDraft.format==="together"?"Start with bot fill":codeDraft.format==="rivals"?"Start teams":"Start with no fill"}</button>;})()}<button onClick={()=>setCodeLobby(null)} style={ghostBtn}>Leave</button></div></div>}
+      <div style={{...card,padding:18,marginBottom:11,borderColor:"#a993df66",background:`linear-gradient(135deg,${T.panel},${shade("#a993df",-.9)})`}}><div style={{fontFamily:T.mono,fontSize:10,color:"#a993df",letterSpacing:1.8}}>PRIVATE · UNRANKED</div><div style={{fontFamily:T.display,fontSize:28,fontWeight:600,marginTop:2}}>Private Match</div><div style={{fontSize:12,color:T.muted,lineHeight:1.5,marginTop:4}}>Create a lobby and share its code, or join a friend's. Everyone picks a culture, the host sets the rules and starts. Anyone with the code can watch a match that's already live. No MMR changes.</div></div>
+      {(!codeLobby||codeLobby.error||codeLobby.status==="checking")?<div style={{...card,padding:15}}>{codeLobby?.error&&<div style={{padding:"8px 10px",border:`1px solid #ef7e8866`,borderRadius:7,color:"#ef7e88",fontSize:12,marginBottom:10}}>{codeLobby.error}</div>}
+        <label style={{display:"block",fontFamily:T.mono,fontSize:10,color:T.muted}}>MATCH CODE<input value={codeDraft.code} maxLength={24} disabled={codeLobby?.status==="checking"} onChange={e=>setCodeDraft(d=>({...d,code:e.target.value}))} onKeyDown={e=>{if(e.key==="Enter"&&codeDraft.code.trim())openCodeLobby("join");}} placeholder="type a shared phrase or generate one" style={{...input,width:"100%",marginTop:4}}/></label>
+        {codeLobby?.status==="checking"
+          ?<div style={{fontFamily:T.mono,fontSize:12,color:T.accent,marginTop:12}}>Checking “{codeLobby.code}”…</div>
+          :<div style={{display:"flex",gap:7,marginTop:10,flexWrap:"wrap"}}><button onClick={()=>openCodeLobby("create")} style={primaryBtn}>Create lobby</button><button onClick={()=>openCodeLobby("join")} style={{...primaryBtn,background:"#a993df"}}>Join</button><button onClick={()=>setCodeDraft(d=>({...d,code:generatedCode()}))} style={ghostBtn}>Generate code</button></div>}
+        <div style={{fontSize:10,color:T.muted,marginTop:8,lineHeight:1.45}}>Create makes a new lobby with this code (leave it blank for a random one). Join enters a friend's lobby, or watches their match if it has already started.</div></div>
+      :(()=>{const civName=c=>CIVS[c]?CIVS[c].name:"Random culture",sel={...input,width:"100%",marginTop:4},cfg=lobbyCfg,amSeated=seatedIds.has(tabId);
+        const SEAT_LABEL={open:"Open · waiting for a player",bot:"Petri bot · random culture",vacant:"Vacant · not in this game"};
+        const head=<div style={{display:"flex",justifyContent:"space-between",alignItems:"start",gap:10,flexWrap:"wrap"}}><div><div style={{fontFamily:T.mono,fontSize:10,color:T.accent,letterSpacing:1.5}}>LOBBY CODE</div><div style={{fontFamily:T.display,fontSize:28,fontWeight:600,letterSpacing:2}}>{codeLobby.code}</div></div><span style={{fontFamily:T.mono,fontSize:10,color:lobbyHost?T.accent:T.muted}}>{codeLobby.spectate?"SPECTATING":lobbyHost?"YOU ARE HOST":amSeated?"WAITING FOR HOST":"WATCHING"}</span></div>;
+        if(codeLobby.spectate||!cfg)return <div style={{...card,padding:16,borderColor:T.accent}}>{head}
+          <div style={{fontSize:12,color:T.muted,margin:"10px 0 12px"}}>{codeLobby.spectate?"This match is already live. Loading the board so you can watch…":"Connecting to the lobby…"}</div>
+          <button onClick={()=>setCodeLobby(null)} style={ghostBtn}>Leave</button></div>;
+        return <div style={{...card,padding:16,borderColor:T.accent}}>{head}
+        <div style={{fontSize:11,color:T.muted,marginTop:6}}>Friends join by opening Online → Private Match, typing this code and pressing Join.</div>
+        <div style={{display:"grid",gap:6,margin:"14px 0"}}>{cfg.seats.map((s,i)=>{const me=s.t==="player"&&s.id===tabId,civ=s.t==="player"?peerCiv(s.id):null;
+          return <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:7,background:T.cell,fontFamily:T.mono,fontSize:10,border:`1px solid ${me?T.accent:"transparent"}`,opacity:s.t==="vacant"?.6:1}}>
+            <span style={{display:"flex",alignItems:"center",gap:7,minWidth:0}}>
+              <span style={{color:T.muted,flexShrink:0}}>{i+1}</span>
+              {s.t==="player"&&<span style={{width:9,height:9,borderRadius:2,flexShrink:0,background:CIVS[civ]?CIVS[civ].color:T.muted}}/>}
+              <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.t==="player"?`${peerName(s.id)}${me?" (you)":""}${s.id===effHost?" · host":""}`:SEAT_LABEL[s.t]}</span></span>
+            <span style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+              {me&&<><select value={myCiv} onChange={e=>setMyCiv(e.target.value)} style={{...input,padding:"4px 6px",fontSize:11,maxWidth:160}}><option value="random">Random culture</option>{CIV_IDS.map(id=><option key={id} value={id}>{CIVS[id].name} · {TRAIT[id][0]}</option>)}</select>
+                <button onClick={()=>lobbyReq({type:"watch"})} style={{...ghostBtn,padding:"4px 8px",fontSize:10}}>Watch</button></>}
+              {s.t==="player"&&!me&&<span style={{color:"#75c39a"}}>{civName(civ)}</span>}
+              {s.t==="open"&&<button onClick={()=>lobbyReq({type:"sit",seat:i})} style={{...ghostBtn,padding:"4px 8px",fontSize:10,borderColor:T.accent,color:T.accent}}>{amSeated?"Move here":"Take seat"}</button>}
+              {s.t!=="player"&&lobbyHost&&<select value={s.t} onChange={e=>setSeatType(i,e.target.value)} style={{...input,padding:"4px 6px",fontSize:11}}><option value="open">Open</option><option value="bot">Bot</option><option value="vacant">Vacant</option></select>}
+            </span></div>;})}</div>
+        {lobbyWatchers.length>0&&<div style={{fontSize:10,color:T.muted,margin:"-6px 0 12px"}}>Watching: {lobbyWatchers.map(p=>p.name+(p.id===tabId?" (you)":"")).join(", ")}{!amSeated&&cfg.seats.some(s=>s.t==="open")?" · take an open seat to play":""}</div>}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:9}}>
+          <label style={{fontFamily:T.mono,fontSize:10,color:T.muted}}>CLOCK<select disabled={!lobbyHost} value={cfg.clock} onChange={e=>setLobbyOpt({clock:e.target.value})} style={sel}><option value="blitz">Blitz · 5 minutes</option><option value="full">Full · 15 minutes</option></select></label>
+          <label style={{fontFamily:T.mono,fontSize:10,color:T.muted}}>MAP<select disabled={!lobbyHost} value={cfg.mapId} onChange={e=>setLobbyOpt({mapId:e.target.value})} style={sel}>{ONLINE_MAP_IDS.map(id=><option key={id} value={id}>{MAPS[id].name}</option>)}</select></label>
+          <label style={{fontFamily:T.mono,fontSize:10,color:T.muted}}>CULTURE TRAITS<select disabled={!lobbyHost} value={cfg.traits!==false?"on":"off"} onChange={e=>setLobbyOpt({traits:e.target.value==="on"})} style={sel}><option value="on">On</option><option value="off">Off</option></select></label>
+          <label style={{fontFamily:T.mono,fontSize:10,color:T.muted}}>TEAMS<select disabled={!lobbyHost} value={cfg.teams?"on":"off"} onChange={e=>setLobbyOpt({teams:e.target.value==="on"})} style={sel}><option value="off">Free for all</option><option value="on">2v2 · seats 1+3 vs 2+4</option></select></label></div>
+        <div style={{fontSize:10,color:T.muted,marginTop:8,lineHeight:1.45}}>{lobbyHost?"Set every empty seat to Open, Bot or Vacant. Open seats must be filled before you can start.":"The host sets the seats and rules."} Powers and events off · players who leave mid-game are replaced by a Petri bot and can't rejoin · no MMR changes</div>
+        <div style={{display:"flex",gap:7,marginTop:12,flexWrap:"wrap"}}>{lobbyHost?<button onClick={startCodeMatch} style={primaryBtn}>Start match</button>:<span style={{alignSelf:"center",fontFamily:T.mono,fontSize:11,color:T.muted}}>Waiting for the host to start…</span>}<button onClick={()=>setCodeLobby(null)} style={ghostBtn}>Leave</button></div></div>;})()}
+      {codeNotice&&<div style={overlay} onClick={()=>setCodeNotice(null)}><div onClick={e=>e.stopPropagation()} style={{...card,padding:"22px 24px",maxWidth:360,width:"100%",textAlign:"center"}}>
+        <div style={{fontFamily:T.display,fontSize:20,fontWeight:600,marginBottom:6}}>{codeNotice.title}</div>
+        <div style={{fontSize:13,color:T.muted,lineHeight:1.5,marginBottom:16}}>{codeNotice.msg}</div>
+        <div style={{display:"flex",gap:8,justifyContent:"center"}}>{codeNotice.joinCode&&<button onClick={()=>openCodeLobby("join",codeNotice.joinCode)} style={primaryBtn}>Join instead</button>}<button onClick={()=>setCodeNotice(null)} style={{...miniBtn,padding:"11px 18px"}}>{codeNotice.joinCode?"Cancel":"OK"}</button></div></div></div>}
     </div>:!queue?<div>
       <div style={{...card,padding:20,marginBottom:13,borderColor:"#75c39a66",background:`linear-gradient(135deg,${T.panel},${shade("#75c39a",-.88)})`}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"start",gap:15,flexWrap:"wrap"}}><div><div style={{fontFamily:T.mono,fontSize:10,color:"#75c39a",letterSpacing:2}}>COMPETITIVE · 4 PLAYERS</div>
@@ -4514,8 +4670,10 @@ function App(){
       style={{position:"relative",borderRadius:2,display:"flex",alignItems:"center",justifyContent:"center",cursor:clickable?"pointer":"default",fontSize:isCube?cubeCellPx:cellPx,...style}}>{inner}</div>;}
   return(<Shell wide theme={BT}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:mob?8:14,flexWrap:"wrap",gap:8}}>
-      <Title small/>{daily&&<span style={{fontFamily:T.mono,fontSize:10,letterSpacing:1.5,color:T.accent,border:`1px solid ${T.accent}`,borderRadius:6,padding:"3px 7px",alignSelf:"center"}}>◆ DAILY</span>}<div style={{display:"flex",gap:mob?5:8}}><button onClick={()=>setShowSettings(true)} style={{...ghostBtn,...(mob?{padding:"6px 9px"}:{})}}>{mob?"⚙":"⚙ theme"}</button><button onClick={()=>setShowInfo(true)} style={{...ghostBtn,...(mob?{padding:"6px 9px"}:{})}}>{mob?"?":"? help"}</button>{!mob&&!daily&&<button onClick={()=>setScreen("players")} style={ghostBtn}>setup</button>}<button onClick={()=>{setDaily(null);setDailyInfo(null);setScreen("home");}} style={{...ghostBtn,...(mob?{padding:"6px 9px"}:{})}}>quit</button></div>
+      <Title small/>{daily&&<span style={{fontFamily:T.mono,fontSize:10,letterSpacing:1.5,color:T.accent,border:`1px solid ${T.accent}`,borderRadius:6,padding:"3px 7px",alignSelf:"center"}}>◆ DAILY</span>}{net&&<span style={{fontFamily:T.mono,fontSize:10,letterSpacing:1.5,color:"#a993df",border:"1px solid #a993df",borderRadius:6,padding:"3px 7px",alignSelf:"center"}}>{net.spectator?"◉ SPECTATING":"◉ ONLINE"} · {net.code}</span>}<div style={{display:"flex",gap:mob?5:8}}><button onClick={()=>setShowSettings(true)} style={{...ghostBtn,...(mob?{padding:"6px 9px"}:{})}}>{mob?"⚙":"⚙ theme"}</button><button onClick={()=>setShowInfo(true)} style={{...ghostBtn,...(mob?{padding:"6px 9px"}:{})}}>{mob?"?":"? help"}</button>{!mob&&!daily&&<button onClick={()=>setScreen("players")} style={ghostBtn}>setup</button>}<button onClick={()=>{setDaily(null);setDailyInfo(null);setScreen("home");}} style={{...ghostBtn,...(mob?{padding:"6px 9px"}:{})}}>quit</button></div>
     </div>
+    {net&&netBanner&&<div style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",marginBottom:10,borderRadius:9,border:"1px solid #c5a37a88",background:shade("#c5a37a",-.86),fontSize:12}}>
+      <span style={{flex:1}}>{netBanner}</span><button onClick={()=>setNetBanner("")} style={{...ghostBtn,padding:"3px 9px"}}>×</button></div>}
     {teamMode?
       (mob?
         <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:7}}>
@@ -4709,7 +4867,7 @@ function App(){
     </div></div>}
     {askConcede&&<div style={overlay} onClick={()=>setAskConcede(false)}><div onClick={e=>e.stopPropagation()} style={{...card,padding:"24px 28px",textAlign:"center",maxWidth:340}}>
       <div style={{fontFamily:T.display,fontSize:20,marginBottom:6}}>{codeMatchActive?"Leave this seat?":"Bend the knee?"}</div>
-      <div style={{fontSize:14,color:T.muted,marginBottom:18,lineHeight:1.5}}>{codeMatchActive?`A ${botTierFor(rankedRec(save,codeDraft.clock).mmr).label} Petri bot near your rating will inherit ${CIVS[civOf(turn)].name}, its pieces, clock and abilities.`:`${CIVS[civOf(turn)].name} stops growing for good. The others carry on without you. No takebacks.`}</div>
+      <div style={{fontSize:14,color:T.muted,marginBottom:18,lineHeight:1.5}}>{codeMatchActive?`A ${botTierFor(rankedRec(save,lobbyClock).mmr).label} Petri bot near your rating will inherit ${CIVS[civOf(turn)].name}, its pieces, clock and abilities.`:`${CIVS[civOf(turn)].name} stops growing for good. The others carry on without you. No takebacks.`}</div>
       <div style={{display:"flex",gap:8,justifyContent:"center"}}>
         <button onClick={()=>codeMatchActive?replaceCodePlayer():(setAskConcede(false),concede())} style={{...primaryBtn,background:"#c5a37a"}}>{codeMatchActive?"Let Petri take over":"Bend the knee"}</button>
         <button onClick={()=>setAskConcede(false)} style={{...miniBtn,padding:"11px 18px"}}>Fight on</button></div></div></div>}
@@ -4739,7 +4897,7 @@ function App(){
           <span style={{display:"flex",gap:8,alignItems:"center"}}><span style={{width:6,textAlign:"right"}}>{i+1}</span><span style={{width:11,height:11,borderRadius:3,background:colorOf(s)}}/>{playerNameOf(s)} <span style={{color:T.muted}}>· {CIVS[civOf(s)].name}</span></span><b>{scoreOf(s)}</b></div>))}</div>}
         {rankedMatch&&rankedMatch.delta!==null&&<div style={{padding:"11px 13px",borderRadius:9,background:T.cell,border:`1px solid ${rankedMatch.delta>=0?"#75c39a":"#ef7e88"}`,margin:"-8px 0 16px",fontFamily:T.mono}}>
           <div style={{fontSize:10,color:T.muted}}>{rankedMatch.mode.toUpperCase()} RATING</div><div style={{fontSize:20,fontWeight:500,color:rankedMatch.delta>=0?"#75c39a":"#ef7e88"}}>{rankedMatch.delta>=0?"+":""}{rankedMatch.delta} <span style={{fontSize:14,color:T.ink}}>→ {rankedMatch.newMmr}</span></div><div style={{fontSize:10,color:T.muted}}>{rankedMatch.newRank}</div></div>}
-        <div style={{display:"flex",gap:8,justifyContent:"center"}}>{rankedMatch?<button onClick={()=>{setRankedMatch(null);setQueue(null);setScreen("online");}} style={primaryBtn}>Ranked lobby</button>:net&&!amActingHost()?<span style={{alignSelf:"center",fontFamily:T.mono,fontSize:11,color:T.muted}}>Host can start a rematch</span>:<button onClick={startGame} style={primaryBtn}>{net?"Rematch":"Play again"}</button>}<button onClick={()=>{setNet(null);setDaily(null);setDailyInfo(null);setRankedMatch(null);setScreen("home");}} style={{...miniBtn,padding:"11px 18px"}}>Main menu</button></div>
+        <div style={{display:"flex",gap:8,justifyContent:"center"}}>{rankedMatch?<button onClick={()=>{setRankedMatch(null);setQueue(null);setScreen("online");}} style={primaryBtn}>Ranked lobby</button>:net&&!amActingHost()?<span style={{alignSelf:"center",fontFamily:T.mono,fontSize:11,color:T.muted}}>Waiting for the host…</span>:net?<><button onClick={hostBackToLobby} style={primaryBtn}>Back to lobby</button><button onClick={startGame} style={{...miniBtn,padding:"11px 18px"}}>Rematch</button></>:<button onClick={startGame} style={primaryBtn}>Play again</button>}<button onClick={()=>{if(net)sendLeave();setNet(null);setDaily(null);setDailyInfo(null);setRankedMatch(null);setScreen("home");}} style={{...miniBtn,padding:"11px 18px"}}>Main menu</button></div>
       </div></div>;})()}
   </Shell>);
 }
