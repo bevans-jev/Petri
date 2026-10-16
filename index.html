@@ -879,6 +879,9 @@ function pieceCellStyle(color,tex,cellBg){
   const hit=_pcsCache.get(key);
   if(hit!==undefined)return hit;
   const v=pieceCellStyleRaw(color,tex,cellBg);
+  // Theme changes must not reset an unchanged texture image via the background
+  // shorthand. Apply the same colour longhand used by tileAt to every skin.
+  if(typeof v.background==="string"&&!/gradient|url\(/.test(v.background)){v.backgroundColor=v.background;delete v.background;}
   if(_pcsCache.size>512)_pcsCache.clear();   // guard against unbounded growth
   _pcsCache.set(key,v);
   return v;
@@ -2924,11 +2927,10 @@ function App(){
   useEffect(()=>{const el=boardWrapRef.current;if(!el||typeof ResizeObserver==="undefined")return;
     const ro=new ResizeObserver(es=>{const rc=es[0]&&es[0].contentRect;if(!rc)return;
       if(rc.height)setBoardH(rc.height);
-      // Ignore a width captured mid-reflow that's too small to be real — storing it
-      // would shrink the continuous-skin cell pitch and collapse every cell to the
-      // same slice. Anything under ~8px per cell is not a genuine laid-out board.
-      if(rc.width&&rc.width>=BW*8)setBoardW(rc.width);});
-    ro.observe(el);return()=>ro.disconnect();},[screen,mob]);
+      // Large maps legitimately have cells under 8px on phones. Reject only a
+      // collapsed grid (less than a pixel of cell plus its 1px gap).
+      if(rc.width&&rc.width>=BW*2)setBoardW(rc.width);});
+    ro.observe(el);return()=>ro.disconnect();},[screen,mob,board[0].length]);
   // Measure the ACTUAL cell-grid width synchronously, before the browser paints,
   // so continuous skins get the correct per-cell offset on the very first frame.
   // The ResizeObserver above is async and fires a frame late — which is exactly
@@ -2937,7 +2939,7 @@ function App(){
   // you interacted. useLayoutEffect runs before paint, so there's no bad frame.
   useLayoutEffect(()=>{if(screen!=="game")return;
     const grid=boardWrapRef.current&&boardWrapRef.current.querySelector(".petri-board-cells");
-    if(grid&&grid.clientWidth>=BW*8)setBoardW(grid.clientWidth); // reject tiny mid-layout reads (see collapse guard below)
+    if(grid&&grid.clientWidth>=BW*2)setBoardW(grid.clientWidth); // accept real phone-sized cells; reject collapsed grids
   });   // no deps: re-check every render; setBoardW no-ops when unchanged
   const vib=p=>{if(!mob)return;try{navigator.vibrate&&navigator.vibrate(p);}catch(e){}};
   const [infect,setInfect]=useState(()=>new Set());const [eventFlash,setEventFlash]=useState(null);
@@ -3269,7 +3271,7 @@ function App(){
   },[cubeRot.x,cubeRot.y,cubeGrab]); // eslint-disable-line
   // Close the mobile abilities sheet the moment an ability arms or starts targeting,
   // so the player is looking at the board when it's time to act on it.
-  useEffect(()=>{if(armed||targeting||carnArmed||minerArmed||ascentArmed||lcArmed||okaArmed||caravanMode||ruil||bazaarPick)setMobSheet(false);},[armed,targeting,carnArmed,minerArmed,ascentArmed,lcArmed,okaArmed,caravanMode,ruil,bazaarPick]);
+  useEffect(()=>{if(armed||targeting||carnArmed||minerArmed||ascentArmed||lcArmed||okaArmed||caravanMode||siegeMode||potArmed||castellArmed||eruptPick||ruil||bazaarPick)setMobSheet(false);},[armed,targeting,carnArmed,minerArmed,ascentArmed,lcArmed,okaArmed,caravanMode,siegeMode,potArmed,castellArmed,eruptPick,ruil,bazaarPick]);
   // Apply at most one queued hover preview per frame; clearHover cancels a pending
   // one (used on mouse-leave) so a stale preview can never stick after the cursor
   // has left the board.
@@ -4299,16 +4301,10 @@ function App(){
   // Fallback cell pitch when we don't yet have a trustworthy width: the board is
   // capped around 520 on desktop and fills the viewport on mobile.
   const guessW=mob?Math.max(vw-40,240):Math.min(520,Math.max(vw-40,320));
-  const fallbackPitch=Math.max(12,(guessW/BW)||28);
-  // THE COLLAPSE GUARD. A pitch only a few px wide makes every cell sample almost
-  // the same slice of the tile — the "identical flower/ghost in every square" bug.
-  // It struck whenever a transient small width poisoned the measurement: the
-  // daily paints the whole board in one shot, and a mid-game skin switch reflows
-  // the grid, and either could be read mid-layout at a tiny width. The old guard
-  // only rejected an exact 0, so a small POSITIVE pitch sailed through and stuck.
-  // Refuse any implausibly small pitch outright: a slightly-off pitch still varies
-  // cell to cell (which looks fine), but a sub-cell pitch never can, so we floor it.
-  const cellPitch=measuredPitch>=12?measuredPitch:fallbackPitch;
+  const fallbackPitch=Math.max(2,((guessW-1)/BW)||28);
+  // Use the actual pitch even on dense phone boards. Flooring it to 12px makes
+  // adjacent cells sample non-adjacent slices and breaks continuous skins.
+  const cellPitch=measuredPitch>=2?measuredPitch:fallbackPitch;
 
   const BT=THEMES[boardTheme]||THEMES.dark;
   const cubeTopo=board._cube||null,isCube=!!cubeTopo;
@@ -4392,7 +4388,7 @@ function App(){
       <button onClick={M.toggle} disabled={btnDisabled} style={{...miniBtn,width:"100%",padding:"11px 12px",fontSize:12,opacity:btnDisabled?.4:1,borderColor:btnDisabled?T.line:colorOf(cur),color:M.on?"#0c0e12":T.ink,background:M.on?colorOf(cur):THEME.panel}}>
         {btnLabel}</button>
     </div>;})():null;
-  const hasSheet=mob&&(!!powerCardEl||!!traitCardEl||!!passiveCardEl);
+  const hasSheet=mob; // the sheet also provides Give up when abilities are off
   const zoomBtn={width:34,height:34,borderRadius:17,border:`1px solid ${BT.line}`,background:"rgba(12,14,18,.6)",backdropFilter:"blur(3px)",color:"#fff",fontSize:14,fontFamily:T.mono,lineHeight:"32px",padding:0,textAlign:"center",cursor:"pointer"};
   function boardCellEl(r,c,key,lr,lc){const v=board[r][c],k=r+","+c;let style={background:BT.cell};let inner=null;
     if(v===-2){style={background:BT.bg};if(BW>N&&c===(BW-1)/2)style={background:BT.grid,backgroundImage:`repeating-linear-gradient(0deg, ${BT.wallH} 0 2px, transparent 2px 7px)`,opacity:.85};}
@@ -4526,11 +4522,11 @@ function App(){
         {mob&&(()=>{const arrow={flex:"1 1 0",height:38,borderRadius:8,border:`1px solid ${T.line}`,background:T.cell,color:T.ink,fontSize:20,fontFamily:T.mono,padding:0,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"};
           const dis={opacity:.3};const legal=tent&&tent.ok!==false;
           return <div style={{marginTop:8,background:T.panel,border:`1px solid ${T.line}`,borderRadius:10,padding:8,display:"flex",flexDirection:"column",gap:6}}>
-            {targeting||okaArmed||caravanMode||siegeMode?
+            {targeting||okaArmed||caravanMode||siegeMode||eruptPick?
               <div style={{display:"flex",gap:8,alignItems:"center"}}>
-                <div style={{flex:"1 1 0",fontFamily:T.mono,fontSize:12,color:T.accent}}>◈ {okaArmed?`Tap 5 squares to flood (${floodPick.length}/5)`:siegeMode?`Tap besiegers to wall (${siegePick.length}/${SIEGE_MAX})`:caravanMode?"Tap a far-off open square":"Tap the board to choose a target"}</div>
+                <div style={{flex:"1 1 0",fontFamily:T.mono,fontSize:12,color:T.accent}}>◈ {okaArmed?`Tap 5 squares to flood (${floodPick.length}/5)`:siegeMode?`Tap besiegers to wall (${siegePick.length}/${SIEGE_MAX})`:caravanMode?"Tap a far-off open square":eruptPick?"Tap one of your own pieces to erupt":"Tap the board to choose a target"}</div>
                 {siegeMode&&siegePick.length>0&&<button onClick={()=>commitSiege(siegePick)} style={{...miniBtn,padding:"9px 14px",fontSize:14,borderColor:T.accent,color:T.accent}}>Done</button>}
-                <button onClick={()=>{setTargeting(null);if(okaArmed){setOkaArmed(false);setFloodPick([]);}if(caravanMode)setCaravanMode(false);if(siegeMode){setSiegeMode(false);setSiegePick([]);}}} style={{...miniBtn,padding:"9px 14px",fontSize:14,color:T.accent}}>✕</button>
+                <button onClick={()=>{setTargeting(null);if(okaArmed){setOkaArmed(false);setFloodPick([]);}if(caravanMode)setCaravanMode(false);if(siegeMode){setSiegeMode(false);setSiegePick([]);}if(eruptPick)setEruptPick(false);}} style={{...miniBtn,padding:"9px 14px",fontSize:14,color:T.accent}}>✕</button>
               </div>
             :<>
               {/* arrows + orient on one compact row */}
@@ -4547,7 +4543,7 @@ function App(){
                 <button onClick={submit} disabled={!legal} style={{...miniBtn,flex:"1 1 0",padding:"11px 8px",fontSize:14,fontWeight:500,opacity:legal?1:.4,borderColor:legal?curCol:T.line,color:legal?curCol:T.muted,background:legal?shade(curCol,-0.72):THEME.panel}}>
                   {sel?(legal?"✓ Place":"✕ Illegal"):"Pick a piece"}</button>
                 <button onClick={()=>tent?setTent(null):undoPower()} disabled={!tent&&!pundo} style={{...miniBtn,flex:"0 0 auto",padding:"11px 13px",fontSize:14,opacity:(tent||pundo)?1:.4}}>↺</button>
-                {hasSheet&&(()=>{const armedAbility=armed||carnArmed||minerArmed||ascentArmed||lcArmed||okaArmed||caravanMode||!!ruil||bazaarPick;
+                {hasSheet&&(()=>{const armedAbility=armed||carnArmed||minerArmed||ascentArmed||lcArmed||okaArmed||caravanMode||siegeMode||potArmed||castellArmed||eruptPick||!!ruil||bazaarPick;
                   return <button onClick={()=>setMobSheet(true)} style={{...miniBtn,flex:"1 1 0",padding:"11px 8px",fontSize:14,fontWeight:500,borderColor:T.accent,color:armedAbility?"#0c0e12":T.accent,background:armedAbility?T.accent:shade(T.accent,-0.74)}}>Ability</button>;})()}
               </div>
             </>}
