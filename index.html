@@ -2166,68 +2166,71 @@ const rankedBestStreak=s=>Math.max(...["blitz","full"].map(m=>rankedRec(s,m).bes
 const rankedPeak=s=>Math.max(...["blitz","full"].map(m=>rankedRec(s,m).peak||100));
 const rankedClean=s=>["blitz","full"].reduce((n,m)=>n+(rankedRec(s,m).cleanSweeps||0),0);
 const rankedCivs=s=>{const ids=new Set();for(const m of ["blitz","full"])for(const [id,r] of Object.entries(rankedRec(s,m).byCiv||{}))if(r.w>0)ids.add(id);return ids.size;};
+const AFRICA_CIVS=["botswana","senegal","morocco","kenya"];
+const africaWins=s=>AFRICA_CIVS.filter(id=>["blitz","full"].some(m=>((rankedRec(s,m).byCiv||{})[id]||{w:0}).w>0)).length;
 const CHALLENGES=[
-  {id:"first_game",name:"Let's Get It Spored",desc:"Finish your first ranked game.",test:s=>rankedGames(s)>=1,prog:s=>[Math.min(rankedGames(s),1),1]},
-  {id:"first_win",name:"All I Do Is Grow",desc:"Win your first ranked game.",test:s=>rankedWins(s)>=1,prog:s=>[Math.min(rankedWins(s),1),1]},
+  {id:"first_game",name:"Welcome to the Fungal",desc:"Finish your first ranked game.",test:s=>rankedGames(s)>=1,prog:s=>[Math.min(rankedGames(s),1),1]},
+  {id:"first_win",name:"Ella Brota Sola",desc:"Win your first ranked game.",test:s=>rankedWins(s)>=1,prog:s=>[Math.min(rankedWins(s),1),1]},
   {id:"win_3",name:"Another One Bites the Dish",desc:"Win 3 ranked games.",test:s=>rankedWins(s)>=3,prog:s=>[Math.min(rankedWins(s),3),3]},
-  {id:"win_10",name:"Ten Growth Commandments",desc:"Win 10 ranked games.",test:s=>rankedWins(s)>=10,prog:s=>[Math.min(rankedWins(s),10),10]},
+  {id:"win_10",name:"Life in the Fast Strain",desc:"Win 10 ranked games.",test:s=>rankedWins(s)>=10,prog:s=>[Math.min(rankedWins(s),10),10]},
   {id:"civ_3",name:"Mi Gente, Mi Colony",desc:"Win ranked with 3 different countries.",test:s=>rankedCivs(s)>=3,prog:s=>[Math.min(rankedCivs(s),3),3]},
-  {id:"civ_10",name:"International Cultures Anthem",desc:"Win ranked with 10 different countries.",test:s=>rankedCivs(s)>=10,prog:s=>[Math.min(rankedCivs(s),10),10]},
-  {id:"civ_all",name:"Around the Dish",desc:"Win ranked with all 19 online-eligible countries.",test:s=>rankedCivs(s)>=19,prog:s=>[Math.min(rankedCivs(s),19),19]},
-  {id:"map_5",name:"I've Grown Everywhere",desc:"Win on 5 different boards in any mode.",test:s=>mapWins(s)>=5,prog:s=>[Math.min(mapWins(s),5),5]},
+  {id:"civ_10",name:"We Are the Mold",desc:"Win ranked with 10 different countries.",test:s=>rankedCivs(s)>=10,prog:s=>[Math.min(rankedCivs(s),10),10]},
+  {id:"civ_all",name:"Wavin' Every Flag",desc:"Win ranked with all 19 online-eligible countries.",test:s=>rankedCivs(s)>=19,prog:s=>[Math.min(rankedCivs(s),19),19]},
+  {id:"map_5",name:"Highway to Gel",desc:"Win on 5 different boards in any mode.",test:s=>mapWins(s)>=5,prog:s=>[Math.min(mapWins(s),5),5]},
   {id:"full_tray",name:"Spore Operator",desc:"Place all of your pieces in a game.",test:s=>s.allPieces>=1,prog:s=>[Math.min(s.allPieces,1),1]},
   {id:"streak_3",name:"Three Little Wins",desc:"Win 3 ranked games in a row.",test:s=>rankedBestStreak(s)>=3,prog:s=>[Math.min(rankedBestStreak(s),3),3]},
-  {id:"streak_5",name:"Stayin' A-Dish",desc:"Win 5 ranked games in a row.",test:s=>rankedBestStreak(s)>=5,prog:s=>[Math.min(rankedBestStreak(s),5),5]},
-  {id:"score_90",name:"Started From the Spore",desc:"Reach 1200 MMR in either ranked ladder.",test:s=>rankedPeak(s)>=1200,prog:s=>[Math.min(rankedPeak(s),1200),1200]},
-  {id:"four_player",name:"Four Players, Five Minutes",desc:"Win your first four-player Blitz match.",test:s=>(rankedRec(s,"blitz").wins||0)>=1,prog:s=>[Math.min(rankedRec(s,"blitz").wins||0,1),1]},
-  {id:"veteran_25",name:"In Da Dish",desc:"Play 25 ranked games.",test:s=>rankedGames(s)>=25,prog:s=>[Math.min(rankedGames(s),25),25]},
-  {id:"daily_1",name:"Everydish",desc:"Play a daily challenge.",test:s=>(s.dailyDays||0)>=1,prog:s=>[Math.min(s.dailyDays||0,1),1]},
-  {id:"daily_7",name:"7 Dailies",desc:"Play the Daily 7 days in a row.",test:s=>(s.dailyBestStreak||0)>=7,prog:s=>[Math.min(s.dailyBestStreak||0,7),7]},
+  {id:"streak_5",name:"Uptown Fungus",desc:"Win 5 ranked games in a row.",test:s=>rankedBestStreak(s)>=5,prog:s=>[Math.min(rankedBestStreak(s),5),5]},
+  {id:"score_90",name:"Moves Like Agar",desc:"Reach 1200 MMR in either ranked ladder.",test:s=>rankedPeak(s)>=1200,prog:s=>[Math.min(rankedPeak(s),1200),1200]},
+  {id:"four_player",name:"Blitzkrieg Bloom",desc:"Win your first four-player Blitz match.",test:s=>(rankedRec(s,"blitz").wins||0)>=1,prog:s=>[Math.min(rankedRec(s,"blitz").wins||0,1),1]},
+  {id:"veteran_25",name:"Strain Magic",desc:"Play 25 ranked games.",test:s=>rankedGames(s)>=25,prog:s=>[Math.min(rankedGames(s),25),25]},
+  {id:"daily_1",name:"Here Comes the Spore",desc:"Play a daily challenge.",test:s=>(s.dailyDays||0)>=1,prog:s=>[Math.min(s.dailyDays||0,1),1]},
+  {id:"daily_7",name:"Seven Mutation Army",desc:"Play the Daily 7 days in a row.",test:s=>(s.dailyBestStreak||0)>=7,prog:s=>[Math.min(s.dailyBestStreak||0,7),7]},
   {id:"civ_15",name:"We Are Colony",desc:"Win with 15 different countries in any mode.",test:s=>civWins(s)>=15,prog:s=>[Math.min(civWins(s),15),15]},
-  {id:"win_25",name:"25 or 6 to Spore",desc:"Win 25 ranked games.",test:s=>rankedWins(s)>=25,prog:s=>[Math.min(rankedWins(s),25),25]},
-  {id:"daily_14",name:"Fortnight in the Dish",desc:"Play the Daily 14 days in a row.",test:s=>(s.dailyBestStreak||0)>=14,prog:s=>[Math.min(s.dailyBestStreak||0,14),14]},
+  {id:"win_25",name:"Mold Digger",desc:"Win 25 ranked games.",test:s=>rankedWins(s)>=25,prog:s=>[Math.min(rankedWins(s),25),25]},
+  {id:"daily_14",name:"Sunday Bloomy Sunday",desc:"Play the Daily 14 days in a row.",test:s=>(s.dailyBestStreak||0)>=14,prog:s=>[Math.min(s.dailyBestStreak||0,14),14]},
   {id:"score_130",name:"Yah Mean",desc:"Reach 1600 MMR in either ranked ladder.",test:s=>rankedPeak(s)>=1600,prog:s=>[Math.min(rankedPeak(s),1600),1600]},
-  {id:"win_50",name:"50 Ways to Claim the Dish",desc:"Win 50 ranked games.",test:s=>rankedWins(s)>=50,prog:s=>[Math.min(rankedWins(s),50),50]},
-  {id:"perfect_10",name:"Every Piece of Me",desc:"Place every piece you own in 10 separate games.",test:s=>(s.allPieces||0)>=10,prog:s=>[Math.min(s.allPieces||0,10),10]},
-  {id:"map_all",name:"Maps Don't Lie",desc:"Win at least once on every board.",test:s=>mapWins(s)>=MAP_IDS.length,prog:s=>[mapWins(s),MAP_IDS.length]},
-  {id:"daily_30",name:"30 Dishes",desc:"Play the Daily 30 days in a row.",test:s=>(s.dailyBestStreak||0)>=30,prog:s=>[Math.min(s.dailyBestStreak||0,30),30]},
+  {id:"win_50",name:"Grow or Die",desc:"Win 50 ranked games.",test:s=>rankedWins(s)>=50,prog:s=>[Math.min(rankedWins(s),50),50]},
+  {id:"perfect_10",name:"Every Piece You Take",desc:"Place every piece you own in 10 separate games.",test:s=>(s.allPieces||0)>=10,prog:s=>[Math.min(s.allPieces||0,10),10]},
+  {id:"map_all",name:"Every Board Has Its Spore",desc:"Win at least once on every board.",test:s=>mapWins(s)>=MAP_IDS.length,prog:s=>[mapWins(s),MAP_IDS.length]},
+  {id:"daily_30",name:"Nine to Spore",desc:"Play the Daily 30 days in a row.",test:s=>(s.dailyBestStreak||0)>=30,prog:s=>[Math.min(s.dailyBestStreak||0,30),30]},
   {id:"score_110",name:"Mo MMR, Mo Problems",desc:"Reach 1400 MMR in either ranked ladder.",test:s=>rankedPeak(s)>=1400,prog:s=>[Math.min(rankedPeak(s),1400),1400]},
   {id:"mega_win",name:"Big Petri",desc:"Win on a MEGA board.",test:s=>(s.megaWins||0)>=1,prog:s=>[Math.min(s.megaWins||0,1),1]},
-  {id:"mega_5",name:"Whole Lotta Growth",desc:"Win 5 games on MEGA boards.",test:s=>(s.megaWins||0)>=5,prog:s=>[Math.min(s.megaWins||0,5),5]},
-  {id:"twin_win",name:"Two of Dish",desc:"Win on a TWIN dual-dish board.",test:s=>(s.twinWins||0)>=1,prog:s=>[Math.min(s.twinWins||0,1),1]},
+  {id:"mega_5",name:"Supermassive Black Mold",desc:"Win 5 games on MEGA boards.",test:s=>(s.megaWins||0)>=5,prog:s=>[Math.min(s.megaWins||0,5),5]},
+  {id:"twin_win",name:"Bridge Over Troubled Agar",desc:"Win on a TWIN dual-dish board.",test:s=>(s.twinWins||0)>=1,prog:s=>[Math.min(s.twinWins||0,1),1]},
   {id:"twin_3",name:"It Takes Two Dishes",desc:"Win 3 games on TWIN boards.",test:s=>(s.twinWins||0)>=3,prog:s=>[Math.min(s.twinWins||0,3),3]},
-  {id:"margin_25",name:"Blow the Win Whistle",desc:"Win a game by 25 or more.",test:s=>(s.bigMargin||0)>=25,prog:s=>[Math.min(s.bigMargin||0,25),25]},
+  {id:"margin_25",name:"Mama Said Mold You Out",desc:"Win a game by 25 or more.",test:s=>(s.bigMargin||0)>=25,prog:s=>[Math.min(s.bigMargin||0,25),25]},
   {id:"margin_40",name:"Murder on the Dish Floor",desc:"Win a game by 40 or more.",test:s=>(s.bigMargin||0)>=40,prog:s=>[Math.min(s.bigMargin||0,40),40]},
-  {id:"blowout_10",name:"Grow 'Em Up",desc:"Win 10 games by at least 25 points each.",test:s=>(s.blowouts||0)>=10,prog:s=>[Math.min(s.blowouts||0,10),10]},
+  {id:"blowout_10",name:"Life We Grow",desc:"Win 10 games by at least 25 points each.",test:s=>(s.blowouts||0)>=10,prog:s=>[Math.min(s.blowouts||0,10),10]},
   {id:"expert_win",name:"Harder, Better, Faster, Grower",desc:"Beat a table of all Expert/Petri CPUs.",test:s=>(s.expertWins||0)>=1,prog:s=>[Math.min(s.expertWins||0,1),1]},
-  {id:"expert_10",name:"Welcome to the Petri Machine",desc:"Beat all-Expert/Petri tables 10 times.",test:s=>(s.expertWins||0)>=10,prog:s=>[Math.min(s.expertWins||0,10),10]},
-  {id:"pure_5",name:"No Power Scrubs",desc:"Win 5 games with Powers, Traits and Events all off.",test:s=>(s.pureWins||0)>=5,prog:s=>[Math.min(s.pureWins||0,5),5]},
-  {id:"pure_25",name:"Nothing Extra Matters",desc:"Win 25 pure games with every extra system off.",test:s=>(s.pureWins||0)>=25,prog:s=>[Math.min(s.pureWins||0,25),25]},
+  {id:"expert_10",name:"Killing in the Strain",desc:"Beat all-Expert/Petri tables 10 times.",test:s=>(s.expertWins||0)>=10,prog:s=>[Math.min(s.expertWins||0,10),10]},
+  {id:"pure_5",name:"Nothin' but a Germ Thang",desc:"Win 5 games with Powers, Traits and Events all off.",test:s=>(s.pureWins||0)>=5,prog:s=>[Math.min(s.pureWins||0,5),5]},
+  {id:"pure_25",name:"Purple Stain",desc:"Win 25 pure games with every extra system off.",test:s=>(s.pureWins||0)>=25,prog:s=>[Math.min(s.pureWins||0,25),25]},
   {id:"daily_win",name:"Day 'N' Dish",desc:"Win a Daily challenge.",test:s=>(s.dailyWins||0)>=1,prog:s=>[Math.min(s.dailyWins||0,1),1]},
-  {id:"daily_win_7",name:"Sunday Petri Best",desc:"Win 7 Daily challenges.",test:s=>(s.dailyWins||0)>=7,prog:s=>[Math.min(s.dailyWins||0,7),7]},
-  {id:"daily_win_streak_5",name:"Everyday Petri",desc:"Win the Daily 5 days in a row.",test:s=>(s.dailyWinBest||0)>=5,prog:s=>[Math.min(s.dailyWinBest||0,5),5]},
-  {id:"daily_win_30",name:"A Day in the Dish",desc:"Win 30 Daily challenges.",test:s=>(s.dailyWins||0)>=30,prog:s=>[Math.min(s.dailyWins||0,30),30]},
-  {id:"comeback_5",name:"Grow Stronger",desc:"Win 5 Dailies after starting behind.",test:s=>(s.comebacks||0)>=5,prog:s=>[Math.min(s.comebacks||0,5),5]},
-  {id:"sweep_win",name:"Flawless Culture",desc:"Win a ranked game after placing every piece.",test:s=>rankedClean(s)>=1,prog:s=>[Math.min(rankedClean(s),1),1]},
-  {id:"sweep_10",name:"Petri Perfect",desc:"Win 10 ranked games after placing every piece.",test:s=>rankedClean(s)>=10,prog:s=>[Math.min(rankedClean(s),10),10]},
-  {id:"streak_10",name:"Unstoppable Growth",desc:"Win 10 ranked games in a row.",test:s=>rankedBestStreak(s)>=10,prog:s=>[Math.min(rankedBestStreak(s),10),10]},
-  {id:"four_10",name:"Gasolina",desc:"Win 10 ranked Blitz matches.",test:s=>(rankedRec(s,"blitz").wins||0)>=10,prog:s=>[Math.min(rankedRec(s,"blitz").wins||0,10),10]},
-  {id:"win_100",name:"100 Years in the Dish",desc:"Win 100 ranked games.",test:s=>rankedWins(s)>=100,prog:s=>[Math.min(rankedWins(s),100),100]},
+  {id:"daily_win_7",name:"Jai Grow",desc:"Win 7 Daily challenges.",test:s=>(s.dailyWins||0)>=7,prog:s=>[Math.min(s.dailyWins||0,7),7]},
+  {id:"daily_win_streak_5",name:"Ring of Spore",desc:"Win the Daily 5 days in a row.",test:s=>(s.dailyWinBest||0)>=5,prog:s=>[Math.min(s.dailyWinBest||0,5),5]},
+  {id:"daily_win_30",name:"Shine On You Crazy Dia-mold",desc:"Win 30 Daily challenges.",test:s=>(s.dailyWins||0)>=30,prog:s=>[Math.min(s.dailyWins||0,30),30]},
+  {id:"comeback_5",name:"I Will Spore-vive",desc:"Win 5 Dailies after starting behind.",test:s=>(s.comebacks||0)>=5,prog:s=>[Math.min(s.comebacks||0,5),5]},
+  {id:"sweep_win",name:"Sweep Caroline",desc:"Win a ranked game after placing every piece.",test:s=>rankedClean(s)>=1,prog:s=>[Math.min(rankedClean(s),1),1]},
+  {id:"sweep_10",name:"Plasmid Love",desc:"Win 10 ranked games after placing every piece.",test:s=>rankedClean(s)>=10,prog:s=>[Math.min(rankedClean(s),10),10]},
+  {id:"streak_10",name:"Don't Stop Bloomin'",desc:"Win 10 ranked games in a row.",test:s=>rankedBestStreak(s)>=10,prog:s=>[Math.min(rankedBestStreak(s),10),10]},
+  {id:"four_10",name:"Bidi Bidi Bloom Bloom",desc:"Win 10 ranked Blitz matches.",test:s=>(rankedRec(s,"blitz").wins||0)>=10,prog:s=>[Math.min(rankedRec(s,"blitz").wins||0,10),10]},
+  {id:"win_100",name:"Like a Rolling Spore",desc:"Win 100 ranked games.",test:s=>rankedWins(s)>=100,prog:s=>[Math.min(rankedWins(s),100),100]},
   {id:"score_150",name:"Dish Better Have My Money",desc:"Reach 1800 MMR in either ranked ladder.",test:s=>rankedPeak(s)>=1800,prog:s=>[Math.min(rankedPeak(s),1800),1800]},
-  {id:"veteran_100",name:"The Long and Winding Growth",desc:"Play 100 ranked games.",test:s=>rankedGames(s)>=100,prog:s=>[Math.min(rankedGames(s),100),100]},
+  {id:"veteran_100",name:"Stairway to Leaven",desc:"Play 100 ranked games.",test:s=>rankedGames(s)>=100,prog:s=>[Math.min(rankedGames(s),100),100]},
+  {id:"africa_4",name:"I Bless the Spores Down in Africa",desc:"Win ranked with Botswana, Senegal, Morocco and Kenya.",test:s=>africaWins(s)>=4,prog:s=>[africaWins(s),4]},
   // Elite feats: these gate the rarest finishes. They measure mastery rather
   // than participation and are intentionally long-term or exceptional runs.
-  {id:"win_250",name:"All the Way Up the Ladder",desc:"Win 250 ranked games.",test:s=>rankedWins(s)>=250,prog:s=>[Math.min(rankedWins(s),250),250]},
-  {id:"score_300",name:"Can't Contain Us",desc:"Reach 2000 MMR: The Uncontained.",test:s=>rankedPeak(s)>=2000,prog:s=>[Math.min(rankedPeak(s),2000),2000]},
-  {id:"expert_25",name:"Highest in the Dish",desc:"Reach 2500 MMR: Grand Mycologist.",test:s=>rankedPeak(s)>=2500,prog:s=>[Math.min(rankedPeak(s),2500),2500]},
-  {id:"sweep_25",name:"Irreplaceable Pieces",desc:"Win 25 ranked games after placing every piece.",test:s=>rankedClean(s)>=25,prog:s=>[Math.min(rankedClean(s),25),25]},
-  {id:"daily_win_50",name:"The Longest Culture Time",desc:"Win 50 Daily challenges.",test:s=>(s.dailyWins||0)>=50,prog:s=>[Math.min(s.dailyWins||0,50),50]},
-  {id:"mega_25",name:"Viva la Colonia",desc:"Win 25 games on MEGA boards.",test:s=>(s.megaWins||0)>=25,prog:s=>[Math.min(s.megaWins||0,25),25]},
-  {id:"twin_10",name:"Parallel Dishes",desc:"Win 10 games on TWIN boards.",test:s=>(s.twinWins||0)>=10,prog:s=>[Math.min(s.twinWins||0,10),10]},
-  {id:"pure_50",name:"The Sound of Sterility",desc:"Win 50 pure games with every extra system off.",test:s=>(s.pureWins||0)>=50,prog:s=>[Math.min(s.pureWins||0,50),50]},
-  {id:"streak_15",name:"Don't Break My Streak",desc:"Win 15 ranked games in a row.",test:s=>rankedBestStreak(s)>=15,prog:s=>[Math.min(rankedBestStreak(s),15),15]},
-  {id:"four_25",name:"Slow Jamz, Full Dish",desc:"Win 25 ranked Full matches.",test:s=>(rankedRec(s,"full").wins||0)>=25,prog:s=>[Math.min(rankedRec(s,"full").wins||0,25),25]},
-  {id:"streak_50",name:"Don't Stop Me Growing",desc:"Win 50 ranked games in a row.",test:s=>rankedBestStreak(s)>=50,prog:s=>[Math.min(rankedBestStreak(s),50),50]}
+  {id:"win_250",name:"For Whom the Cell Tolls",desc:"Win 250 ranked games.",test:s=>rankedWins(s)>=250,prog:s=>[Math.min(rankedWins(s),250),250]},
+  {id:"score_300",name:"Break On Through (to the Other Dish)",desc:"Reach 2000 MMR: The Uncontained.",test:s=>rankedPeak(s)>=2000,prog:s=>[Math.min(rankedPeak(s),2000),2000]},
+  {id:"expert_25",name:"Master of Petris",desc:"Reach 2500 MMR: Grand Mycologist.",test:s=>rankedPeak(s)>=2500,prog:s=>[Math.min(rankedPeak(s),2500),2500]},
+  {id:"sweep_25",name:"Piece of My Dish",desc:"Win 25 ranked games after placing every piece.",test:s=>rankedClean(s)>=25,prog:s=>[Math.min(rankedClean(s),25),25]},
+  {id:"daily_win_50",name:"Agar No Get Enemy",desc:"Win 50 Daily challenges.",test:s=>(s.dailyWins||0)>=50,prog:s=>[Math.min(s.dailyWins||0,50),50]},
+  {id:"mega_25",name:"Viral Insanity",desc:"Win 25 games on MEGA boards.",test:s=>(s.megaWins||0)>=25,prog:s=>[Math.min(s.megaWins||0,25),25]},
+  {id:"twin_10",name:"Cumbia Sobre el Dish",desc:"Win 10 games on TWIN boards.",test:s=>(s.twinWins||0)>=10,prog:s=>[Math.min(s.twinWins||0,10),10]},
+  {id:"pure_50",name:"Like a Virgin Agar (= Untouched)",desc:"Win 50 pure games with every extra system off.",test:s=>(s.pureWins||0)>=50,prog:s=>[Math.min(s.pureWins||0,50),50]},
+  {id:"streak_15",name:"Petri Man (Take Me by the Hand)",desc:"Win 15 ranked games in a row.",test:s=>rankedBestStreak(s)>=15,prog:s=>[Math.min(rankedBestStreak(s),15),15]},
+  {id:"four_25",name:"Dishpacito",desc:"Win 25 ranked Full matches.",test:s=>(rankedRec(s,"full").wins||0)>=25,prog:s=>[Math.min(rankedRec(s,"full").wins||0,25),25]},
+  {id:"streak_50",name:"Gram Stain Style",desc:"Win 50 ranked games in a row.",test:s=>rankedBestStreak(s)>=50,prog:s=>[Math.min(rankedBestStreak(s),50),50]}
 ];
 const challengeDone=(s,c)=>!!c&&(s.unlocked.includes(c.id)||c.test(s));
 // Cosmetics not listed here are free from the start.
@@ -2752,6 +2755,7 @@ function App(){
   const [codeNotice,setCodeNotice]=useState(null);   // popup on the online screen: {title,msg,joinCode?}
   const [goneIds,setGoneIds]=useState(()=>new Set()); // tabs that explicitly left this match (no rejoining)
   const [myCiv,setMyCiv]=useState("random");          // culture picked in a private lobby
+  const [civSheet,setCivSheet]=useState(null);        // culture picker popup: highlighted culture id, or null when closed
   const [netBanner,setNetBanner]=useState("");        // in-game notice, e.g. "X left, a bot took over"
   // Private lobby, owned by its host and mirrored to everyone:
   // {host, seats:[{t:"player",id}|{t:"open"}|{t:"bot"}|{t:"vacant"} x4], clock, mapId, traits, teams}
@@ -4375,42 +4379,67 @@ function App(){
     <Crumb onBack={()=>{setQueue(null);setCodeLobby(null);setDevRankOpen(false);setScreen("home");}} step="Online play"/>
     <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:6,marginBottom:13}}>{[["ranked","Online"],["code","Private Match"]].map(([id,label])=><button key={id} onClick={()=>{setOnlineTab(id);setQueue(null);}} style={{...ghostBtn,padding:"10px 7px",borderColor:onlineTab===id?T.accent:T.line,color:onlineTab===id?T.accent:T.muted}}>{label}</button>)}</div>
     {onlineTab==="code"?<div>
-      <div style={{...card,padding:18,marginBottom:11,borderColor:"#a993df66",background:`linear-gradient(135deg,${T.panel},${shade("#a993df",-.9)})`}}><div style={{fontFamily:T.mono,fontSize:10,color:"#a993df",letterSpacing:1.8}}>PRIVATE · UNRANKED</div><div style={{fontFamily:T.display,fontSize:28,fontWeight:600,marginTop:2}}>Private Match</div><div style={{fontSize:12,color:T.muted,lineHeight:1.5,marginTop:4}}>Create a lobby and share its code, or join a friend's. Everyone picks a culture, the host sets the rules and starts. Anyone with the code can watch a match that's already live. No MMR changes.</div></div>
+      {(!codeLobby||codeLobby.error||codeLobby.status==="checking")&&<div style={{...card,padding:mob?14:18,marginBottom:11,borderColor:"#a993df66",background:`linear-gradient(135deg,${T.panel},${shade("#a993df",-.9)})`}}><div style={{fontFamily:T.mono,fontSize:10,color:"#a993df",letterSpacing:1.8}}>PRIVATE · UNRANKED</div><div style={{fontFamily:T.display,fontSize:28,fontWeight:600,marginTop:2}}>Private Match</div><div style={{fontSize:12,color:T.muted,lineHeight:1.5,marginTop:4}}>Create a lobby and share its code, or join a friend's. Everyone picks a culture, the host sets the rules and starts. Anyone with the code can watch a match that's already live. No MMR changes.</div></div>}
       {(!codeLobby||codeLobby.error||codeLobby.status==="checking")?<div style={{...card,padding:15}}>{codeLobby?.error&&<div style={{padding:"8px 10px",border:`1px solid #ef7e8866`,borderRadius:7,color:"#ef7e88",fontSize:12,marginBottom:10}}>{codeLobby.error}</div>}
         <label style={{display:"block",fontFamily:T.mono,fontSize:10,color:T.muted}}>MATCH CODE<input value={codeDraft.code} maxLength={24} disabled={codeLobby?.status==="checking"} onChange={e=>setCodeDraft(d=>({...d,code:e.target.value}))} onKeyDown={e=>{if(e.key==="Enter"&&codeDraft.code.trim())openCodeLobby("join");}} placeholder="type a shared phrase or generate one" style={{...input,width:"100%",marginTop:4}}/></label>
         {codeLobby?.status==="checking"
           ?<div style={{fontFamily:T.mono,fontSize:12,color:T.accent,marginTop:12}}>Checking “{codeLobby.code}”…</div>
-          :<div style={{display:"flex",gap:7,marginTop:10,flexWrap:"wrap"}}><button onClick={()=>openCodeLobby("create")} style={primaryBtn}>Create lobby</button><button onClick={()=>openCodeLobby("join")} style={{...primaryBtn,background:"#a993df"}}>Join</button><button onClick={()=>setCodeDraft(d=>({...d,code:generatedCode()}))} style={ghostBtn}>Generate code</button></div>}
+          :<div style={{display:"flex",gap:7,marginTop:10,flexWrap:"wrap"}}><button onClick={()=>openCodeLobby("create")} style={{...primaryBtn,flex:mob?"1 1 0":"0 0 auto"}}>Create lobby</button><button onClick={()=>openCodeLobby("join")} style={{...primaryBtn,background:"#a993df",flex:mob?"1 1 0":"0 0 auto"}}>Join</button><button onClick={()=>setCodeDraft(d=>({...d,code:generatedCode()}))} style={{...ghostBtn,flex:mob?"1 1 100%":"0 0 auto",padding:mob?"9px 11px":ghostBtn.padding}}>Generate code</button></div>}
         <div style={{fontSize:10,color:T.muted,marginTop:8,lineHeight:1.45}}>Create makes a new lobby with this code (leave it blank for a random one). Join enters a friend's lobby, or watches their match if it has already started.</div></div>
       :(()=>{const civName=c=>CIVS[c]?CIVS[c].name:"Random culture",sel={...input,width:"100%",marginTop:4},cfg=lobbyCfg,amSeated=seatedIds.has(tabId);
-        const SEAT_LABEL={open:"Open · waiting for a player",bot:"Petri bot · random culture",vacant:"Vacant · not in this game"};
-        const head=<div style={{display:"flex",justifyContent:"space-between",alignItems:"start",gap:10,flexWrap:"wrap"}}><div><div style={{fontFamily:T.mono,fontSize:10,color:T.accent,letterSpacing:1.5}}>LOBBY CODE</div><div style={{fontFamily:T.display,fontSize:28,fontWeight:600,letterSpacing:2}}>{codeLobby.code}</div></div><span style={{fontFamily:T.mono,fontSize:10,color:lobbyHost?T.accent:T.muted}}>{codeLobby.spectate?"SPECTATING":lobbyHost?"YOU ARE HOST":amSeated?"WAITING FOR HOST":"WATCHING"}</span></div>;
+        const SEAT_LABEL={open:"Open seat",bot:"Petri bot · random culture",vacant:"Vacant · not playing"};
+        const head=<div style={{display:"flex",justifyContent:"space-between",alignItems:"start",gap:10,flexWrap:"wrap"}}><div style={{minWidth:0,maxWidth:"100%"}}><div style={{fontFamily:T.mono,fontSize:10,color:T.accent,letterSpacing:1.5}}>LOBBY CODE</div><div style={{fontFamily:T.display,fontSize:mob?22:28,fontWeight:600,letterSpacing:mob?1:2,overflowWrap:"anywhere"}}>{codeLobby.code}</div></div><span style={{fontFamily:T.mono,fontSize:10,color:lobbyHost?T.accent:T.muted}}>{codeLobby.spectate?"SPECTATING":lobbyHost?"YOU ARE HOST":amSeated?"WAITING FOR HOST":"WATCHING"}</span></div>;
         if(codeLobby.spectate||!cfg)return <div style={{...card,padding:16,borderColor:T.accent}}>{head}
           <div style={{fontSize:12,color:T.muted,margin:"10px 0 12px"}}>{codeLobby.spectate?"This match is already live. Loading the board so you can watch…":"Connecting to the lobby…"}</div>
           <button onClick={()=>setCodeLobby(null)} style={ghostBtn}>Leave</button></div>;
-        return <div style={{...card,padding:16,borderColor:T.accent}}>{head}
-        <div style={{fontSize:11,color:T.muted,marginTop:6}}>Friends join by opening Online → Private Match, typing this code and pressing Join.</div>
+        return <div style={{...card,padding:mob?13:16,borderColor:T.accent}}>{head}
+        <div style={{fontSize:11,color:T.muted,marginTop:6}}>Friends join from Online → Private Match with this code.</div>
         <div style={{display:"grid",gap:6,margin:"14px 0"}}>{cfg.seats.map((s,i)=>{const me=s.t==="player"&&s.id===tabId,civ=s.t==="player"?peerCiv(s.id):null;
-          return <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:7,background:T.cell,fontFamily:T.mono,fontSize:10,border:`1px solid ${me?T.accent:"transparent"}`,opacity:s.t==="vacant"?.6:1}}>
-            <span style={{display:"flex",alignItems:"center",gap:7,minWidth:0}}>
+          // Host picks an empty seat's type with three small toggles instead of a dropdown.
+          const typeBtns=s.t!=="player"&&lobbyHost?<span style={{display:"flex",gap:4}}>{[["open","Open"],["bot","Bot"],["vacant","Vacant"]].map(([t,l])=><button key={t} onClick={()=>setSeatType(i,t)} style={{...ghostBtn,padding:"5px 9px",fontSize:10,letterSpacing:.5,borderColor:s.t===t?T.accent:T.line,color:s.t===t?T.accent:T.muted}}>{l}</button>)}</span>:null;
+          return <div key={i} style={{padding:"9px 10px",borderRadius:8,background:T.cell,border:`1px solid ${me?T.accent:"transparent"}`,opacity:s.t==="vacant"&&!lobbyHost?.6:1}}>
+            <div style={{display:"flex",alignItems:"center",gap:7,minWidth:0,fontFamily:T.mono,fontSize:11}}>
               <span style={{color:T.muted,flexShrink:0}}>{i+1}</span>
               {s.t==="player"&&<span style={{width:9,height:9,borderRadius:2,flexShrink:0,background:CIVS[civ]?CIVS[civ].color:T.muted}}/>}
-              <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.t==="player"?`${peerName(s.id)}${me?" (you)":""}${s.id===effHost?" · host":""}`:SEAT_LABEL[s.t]}</span></span>
-            <span style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
-              {me&&<><select value={myCiv} onChange={e=>setMyCiv(e.target.value)} style={{...input,padding:"4px 6px",fontSize:11,maxWidth:160}}><option value="random">Random culture</option>{CIV_IDS.map(id=><option key={id} value={id}>{CIVS[id].name} · {TRAIT[id][0]}</option>)}</select>
-                <button onClick={()=>lobbyReq({type:"watch"})} style={{...ghostBtn,padding:"4px 8px",fontSize:10}}>Watch</button></>}
-              {s.t==="player"&&!me&&<span style={{color:"#75c39a"}}>{civName(civ)}</span>}
-              {s.t==="open"&&<button onClick={()=>lobbyReq({type:"sit",seat:i})} style={{...ghostBtn,padding:"4px 8px",fontSize:10,borderColor:T.accent,color:T.accent}}>{amSeated?"Move here":"Take seat"}</button>}
-              {s.t!=="player"&&lobbyHost&&<select value={s.t} onChange={e=>setSeatType(i,e.target.value)} style={{...input,padding:"4px 6px",fontSize:11}}><option value="open">Open</option><option value="bot">Bot</option><option value="vacant">Vacant</option></select>}
-            </span></div>;})}</div>
+              <span style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:s.t==="player"?T.ink:T.muted}}>{s.t==="player"?`${peerName(s.id)}${me?" (you)":""}${s.id===effHost?" · host":""}`:SEAT_LABEL[s.t]}</span>
+              {s.t==="player"&&!me&&<span style={{color:"#75c39a",flexShrink:0,fontSize:10,maxWidth:"45%",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{civName(civ)}</span>}
+            </div>
+            {(me||s.t==="open"||typeBtns)&&<div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center",marginTop:8}}>
+              {me&&<><button onClick={()=>setCivSheet(myCiv)} style={{...miniBtn,flex:"1 1 170px",minWidth:0,display:"flex",alignItems:"center",gap:7,padding:"8px 10px",textAlign:"left"}}>
+                  <span style={{width:10,height:10,borderRadius:2,flexShrink:0,background:CIVS[myCiv]?CIVS[myCiv].color:T.muted}}/>
+                  <span style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{CIVS[myCiv]?`${CIVS[myCiv].name} · ${TRAIT[myCiv][0]}`:"Random culture"}</span>
+                  <span style={{color:T.accent,fontSize:10,flexShrink:0}}>change ▸</span></button>
+                <button onClick={()=>lobbyReq({type:"watch"})} style={{...ghostBtn,padding:"8px 11px",fontSize:10}}>Watch</button></>}
+              {s.t==="open"&&<button onClick={()=>lobbyReq({type:"sit",seat:i})} style={{...ghostBtn,padding:"5px 10px",fontSize:10,borderColor:"#75c39a",color:"#75c39a"}}>{amSeated?"Move here":"Take seat"}</button>}
+              {typeBtns&&<span style={{marginLeft:"auto"}}>{typeBtns}</span>}
+            </div>}</div>;})}</div>
         {lobbyWatchers.length>0&&<div style={{fontSize:10,color:T.muted,margin:"-6px 0 12px"}}>Watching: {lobbyWatchers.map(p=>p.name+(p.id===tabId?" (you)":"")).join(", ")}{!amSeated&&cfg.seats.some(s=>s.t==="open")?" · take an open seat to play":""}</div>}
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:9}}>
+        <div style={{display:"grid",gridTemplateColumns:mob?"repeat(2,minmax(0,1fr))":"repeat(auto-fit,minmax(150px,1fr))",gap:9}}>
           <label style={{fontFamily:T.mono,fontSize:10,color:T.muted}}>CLOCK<select disabled={!lobbyHost} value={cfg.clock} onChange={e=>setLobbyOpt({clock:e.target.value})} style={sel}><option value="blitz">Blitz · 5 minutes</option><option value="full">Full · 15 minutes</option></select></label>
           <label style={{fontFamily:T.mono,fontSize:10,color:T.muted}}>MAP<select disabled={!lobbyHost} value={cfg.mapId} onChange={e=>setLobbyOpt({mapId:e.target.value})} style={sel}>{ONLINE_MAP_IDS.map(id=><option key={id} value={id}>{MAPS[id].name}</option>)}</select></label>
           <label style={{fontFamily:T.mono,fontSize:10,color:T.muted}}>CULTURE TRAITS<select disabled={!lobbyHost} value={cfg.traits!==false?"on":"off"} onChange={e=>setLobbyOpt({traits:e.target.value==="on"})} style={sel}><option value="on">On</option><option value="off">Off</option></select></label>
-          <label style={{fontFamily:T.mono,fontSize:10,color:T.muted}}>TEAMS<select disabled={!lobbyHost} value={cfg.teams?"on":"off"} onChange={e=>setLobbyOpt({teams:e.target.value==="on"})} style={sel}><option value="off">Free for all</option><option value="on">2v2 · seats 1+3 vs 2+4</option></select></label></div>
-        <div style={{fontSize:10,color:T.muted,marginTop:8,lineHeight:1.45}}>{lobbyHost?"Set every empty seat to Open, Bot or Vacant. Open seats must be filled before you can start.":"The host sets the seats and rules."} Powers and events off · players who leave mid-game are replaced by a Petri bot and can't rejoin · no MMR changes</div>
-        <div style={{display:"flex",gap:7,marginTop:12,flexWrap:"wrap"}}>{lobbyHost?<button onClick={startCodeMatch} style={primaryBtn}>Start match</button>:<span style={{alignSelf:"center",fontFamily:T.mono,fontSize:11,color:T.muted}}>Waiting for the host to start…</span>}<button onClick={()=>setCodeLobby(null)} style={ghostBtn}>Leave</button></div></div>;})()}
+          <label style={{fontFamily:T.mono,fontSize:10,color:T.muted}}>TEAMS<select disabled={!lobbyHost} value={cfg.teams?"on":"off"} onChange={e=>setLobbyOpt({teams:e.target.value==="on"})} style={sel}><option value="off">Free for all</option><option value="on">2v2 · 1+3 vs 2+4</option></select></label></div>
+        <div style={{fontSize:10,color:T.muted,marginTop:9,lineHeight:1.45}}>{lobbyHost?"Every Open seat needs a player, or switch it to Bot or Vacant, before you can start. ":"The host sets the seats and rules. "}Powers and events are off. Anyone who leaves mid-game is replaced by a Petri bot.</div>
+        <div style={{display:"flex",gap:7,marginTop:12,flexWrap:"wrap"}}>{lobbyHost?<button onClick={startCodeMatch} style={{...primaryBtn,flex:mob?"1 1 0":"0 0 auto"}}>Start match</button>:<span style={{alignSelf:"center",flex:mob?"1 1 0":"0 0 auto",fontFamily:T.mono,fontSize:11,color:T.muted}}>Waiting for the host to start…</span>}<button onClick={()=>setCodeLobby(null)} style={ghostBtn}>Leave</button></div></div>;})()}
+      {civSheet!==null&&<div style={{...overlay,alignItems:mob?"flex-end":"center",padding:mob?0:16}} onClick={()=>setCivSheet(null)}>
+        <div onClick={e=>e.stopPropagation()} style={{...card,padding:0,width:mob?"100%":"min(500px,100%)",maxHeight:mob?"86vh":"80vh",display:"flex",flexDirection:"column",borderRadius:mob?"16px 16px 0 0":10,overflow:"hidden"}}>
+          <div style={{padding:"14px 15px 10px",borderBottom:`1px solid ${T.line}`}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}><b style={{fontFamily:T.display,fontSize:18}}>Choose your culture</b><button onClick={()=>setCivSheet(null)} style={ghostBtn}>close</button></div>
+            <div style={{fontSize:11,color:T.muted,marginTop:3,lineHeight:1.4}}>Tap a culture to read its ability, then confirm below.{lobbyCfg&&lobbyCfg.traits===false?" Culture traits are OFF in this lobby, so abilities won't be active.":""}</div></div>
+          <div className="petri-thin" style={{overflowY:"auto",padding:"10px 12px",display:"grid",gap:6}}>
+            {["random",...CIV_IDS].map(id=>{const c=CIVS[id],col=c?c.color:T.muted,on=civSheet===id,cap=t=>t.charAt(0).toUpperCase()+t.slice(1);
+              return <button key={id} onClick={()=>setCivSheet(id)} style={{textAlign:"left",padding:"9px 11px",borderRadius:8,border:`1px solid ${on?col:T.line}`,background:on?shade(col,-.8):T.cell,cursor:"pointer",width:"100%"}}>
+                <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}>
+                  <span style={{width:11,height:11,borderRadius:3,flexShrink:0,background:col}}/>
+                  <b style={{fontSize:13,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c?c.name:"Random culture"}</b>
+                  {myCiv===id&&<span style={{fontFamily:T.mono,fontSize:9,color:T.accent,flexShrink:0}}>CURRENT</span>}
+                  <span style={{fontFamily:T.mono,fontSize:10,color:col,flexShrink:0,maxWidth:"45%",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c?TRAIT[id][0]:"Surprise"}</span></div>
+                {on&&<div style={{fontSize:12,color:T.muted,lineHeight:1.5,marginTop:7}}>{c?<><span style={{color:T.ink}}>{c.region}.</span> {cap(TRAIT[id][1])}.</>:"A culture is drawn for you when the match starts."}</div>}
+              </button>;})}
+          </div>
+          <div style={{padding:"10px 12px calc(12px + env(safe-area-inset-bottom))",borderTop:`1px solid ${T.line}`}}>
+            <button onClick={()=>{setMyCiv(civSheet);setCivSheet(null);}} style={{...primaryBtn,width:"100%"}}>{CIVS[civSheet]?`Play as ${CIVS[civSheet].name}`:"Go random"}</button></div>
+        </div></div>}
       {codeNotice&&<div style={overlay} onClick={()=>setCodeNotice(null)}><div onClick={e=>e.stopPropagation()} style={{...card,padding:"22px 24px",maxWidth:360,width:"100%",textAlign:"center"}}>
         <div style={{fontFamily:T.display,fontSize:20,fontWeight:600,marginBottom:6}}>{codeNotice.title}</div>
         <div style={{fontSize:13,color:T.muted,lineHeight:1.5,marginBottom:16}}>{codeNotice.msg}</div>
