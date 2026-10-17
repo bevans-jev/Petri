@@ -3256,7 +3256,7 @@ function App(){
     setCodeMatchActive(false);
     setMapId(d.mapId);setCount(d.count);setTeamMode(false);
     setOpts({powers:!!d.powers,traits:d.traits,events:false});
-    setSeats(s=>s.map((x,i)=>({...x,kind:i===0?"human":"cpu",civ:d.civs[i]||x.civ,brain:d.brain,botMmr:undefined,team:0,
+    setSeats(s=>s.map((x,i)=>({...x,kind:i===0?"human":"cpu",civ:d.civs[i]||x.civ,randCiv:false,brain:d.brain,botMmr:undefined,team:0,
       power:(d.powerIds&&d.powerIds[i])||x.power})));
     setDaily(d.key);setDailyInfo(d);
     // Playing out the opening takes a moment on the bigger boards, so paint a
@@ -3321,12 +3321,19 @@ function App(){
     return()=>clearInterval(id);},[rankedDraft]); // eslint-disable-line
 
   function startGame(){let {board:b,specials:sp,starts:st,copies:cp}=buildMap(mapId);
+    // Seats set to Random draw a culture now, fresh every game, preferring ones
+    // no other seat is using. The seat keeps its Random flag for the next game.
+    let seatsNow=seats;
+    if(seats.slice(0,count).some(x=>x.randCiv)){const taken=new Set(seats.slice(0,count).filter(x=>!x.randCiv).map(x=>x.civ));
+      seatsNow=seats.map((x,i)=>{if(!x.randCiv||i>=count)return x;const pool=CIV_IDS.filter(id=>!taken.has(id)),from=pool.length?pool:CIV_IDS;
+        const pick=from[Math.floor(Math.random()*from.length)];taken.add(pick);return {...x,civ:pick};});
+      setSeats(seatsNow);}
     const nameSeed=crypto.randomUUID(),names={};let localHuman=0;
     // Stored seat names only belong to online and ranked games. A local game
     // must never inherit the names left on the seats by a previous online match.
     const keepNames=!!(net||rankedMatch);
     for(let s=1;s<=count;s++){
-      const seat=seats[s-1],fixed=keepNames?seat.playerName:null;
+      const seat=seatsNow[s-1],fixed=keepNames?seat.playerName:null;
       if(seat.kind==="human"){
         localHuman++;
         names[s]=fixed||(localHuman===1?displayName(save):`Player ${localHuman}`);
@@ -3334,7 +3341,7 @@ function App(){
     }
     setPlayerNames(names);
     const pw=opts.powers,tr=opts.traits;
-    const u={},l={},ch={};for(let s=1;s<=count;s++){u[s]={};l[s]=null;ch[s]=pw?POWERS[seats[s-1].power].charges:0;}
+    const u={},l={},ch={};for(let s=1;s<=count;s++){u[s]={};l[s]=null;ch[s]=pw?POWERS[seatsNow[s-1].power].charges:0;}
     // Daily handicap: drop the pre-played opening in before anything else, so
     // the board, the trays and the turn order all start from that position.
     let openMsg=null;
@@ -3352,7 +3359,7 @@ function App(){
         openMsg=op.deficit>0
           ? `${dailyInfo.tier.name}: ${blurb} — you're ${op.deficit} behind.`
           : `${dailyInfo.tier.name}: ${blurb}`;}}
-    if(tr)for(let s=1;s<=count;s++)if(seats[s-1].civ==="lithuania"){const BH=b.length,BW=b[0].length;const [sr,sc]=st[s-1];const dr=sr<BH/2?1:-1,dc=sc<BW/2?1:-1,d=Math.round(BH*0.3);
+    if(tr)for(let s=1;s<=count;s++)if(seatsNow[s-1].civ==="lithuania"){const BH=b.length,BW=b[0].length;const [sr,sc]=st[s-1];const dr=sr<BH/2?1:-1,dc=sc<BW/2?1:-1,d=Math.round(BH*0.3);
       const pr=sr+dr*d,pc=sc+dc*d;let done2=false;for(let rad=0;rad<6&&!done2;rad++)for(let a=pr-rad;a<=pr+rad&&!done2;a++)for(let e=pc-rad;e<=pc+rad&&!done2;e++)if(a>=0&&a<BH&&e>=0&&e<BW&&b[a][e]===0){b[a][e]=s;done2=true;}}
     setBoard(b);setSpecials(sp);setStarts(st);setCopies(cp);setUsed(u);setLast(l);setCharges(ch);setDone(new Set());
     setScheme(SCHEMES[0]);setPundo(null);setOverHidden(false);
@@ -4102,6 +4109,35 @@ function App(){
           mounted, so carry a local copy for lock hints. */}
       {toast&&<div style={{...toastStyle,position:"static",transform:"none",display:"block",marginTop:14,textAlign:"center"}}>{toast}</div>}
     </div></div>;
+  // Culture popup, shared by the private lobby and the solo setup screen.
+  // civSheet = {sel, view?, who?, seat?}: `seat` set means a solo setup seat,
+  // `view` means read-only (another lobby player's pick).
+  const civSheetCurrent=civSheet&&civSheet.seat!=null?(seats[civSheet.seat]&&seats[civSheet.seat].randCiv?"random":seats[civSheet.seat]&&seats[civSheet.seat].civ):myCiv;
+  const civTraitsOff=civSheet&&(civSheet.seat!=null?!opts.traits:!!(lobbyCfg&&lobbyCfg.traits===false));
+  const pickCulture=id=>{if(civSheet.seat!=null){const i=civSheet.seat;
+      setSeats(s=>s.map((x,j)=>j!==i?x:id==="random"?{...x,randCiv:true}:{...x,civ:id,randCiv:false}));}
+    else setMyCiv(id);
+    setCivSheet(null);};
+  const civSheetModal=civSheet!==null&&<div style={{...overlay,alignItems:mob?"flex-end":"center",padding:mob?0:16}} onClick={()=>setCivSheet(null)}>
+        <div onClick={e=>e.stopPropagation()} style={{...card,padding:0,width:mob?"100%":"min(500px,100%)",maxHeight:mob?"86vh":"80vh",display:"flex",flexDirection:"column",borderRadius:mob?"16px 16px 0 0":10,overflow:"hidden"}}>
+          <div style={{padding:"14px 15px 10px",borderBottom:`1px solid ${T.line}`}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}><b style={{fontFamily:T.display,fontSize:18,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{civSheet.view?`${civSheet.who}'s culture`:civSheet.seat!=null?`Seat ${civSheet.seat+1} culture`:"Choose your culture"}</b><button onClick={()=>setCivSheet(null)} style={ghostBtn}>close</button></div>
+            <div style={{fontSize:11,color:T.muted,marginTop:3,lineHeight:1.4}}>{civSheet.view?"What they're bringing to the dish.":"Tap a culture to read its ability, then confirm below."}{civTraitsOff?` Culture traits are OFF ${civSheet.seat!=null?"in this game":"in this lobby"}, so abilities won't be active.`:""}</div></div>
+          <div className="petri-thin" style={{overflowY:"auto",padding:"10px 12px",display:"grid",gap:6}}>
+            {(civSheet.view?[civSheet.sel]:["random",...CIV_IDS]).map(id=>{const c=CIVS[id],col=c?c.color:T.muted,on=civSheet.sel===id,cap=t=>t.charAt(0).toUpperCase()+t.slice(1);
+              return <button key={id} onClick={()=>{if(!civSheet.view)setCivSheet({...civSheet,sel:id});}} style={{textAlign:"left",padding:"9px 11px",borderRadius:8,border:`1px solid ${on?col:T.line}`,background:on?shade(col,-.8):T.cell,cursor:"pointer",width:"100%"}}>
+                <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}>
+                  <span style={{width:11,height:11,borderRadius:3,flexShrink:0,background:col}}/>
+                  <b style={{fontSize:13,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c?c.name:"Random culture"}</b>
+                  {!civSheet.view&&civSheetCurrent===id&&<span style={{fontFamily:T.mono,fontSize:9,color:T.accent,flexShrink:0}}>CURRENT</span>}
+                  <span style={{fontFamily:T.mono,fontSize:10,color:col,flexShrink:0,maxWidth:"45%",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c?TRAIT[id][0]:"Surprise"}</span></div>
+                {on&&<div style={{fontSize:12,color:T.muted,lineHeight:1.5,marginTop:7}}>{c?<><span style={{color:T.ink}}>{c.region}.</span> {cap(TRAIT[id][1])}.</>:civSheet.view?"They're going random. A culture is drawn when the match starts.":"A culture is drawn when the game starts, fresh every game."}</div>}
+              </button>;})}
+          </div>
+          <div style={{padding:"10px 12px calc(12px + env(safe-area-inset-bottom))",borderTop:`1px solid ${T.line}`}}>
+            {civSheet.view?<button onClick={()=>setCivSheet(null)} style={{...miniBtn,width:"100%",padding:"11px 12px"}}>Got it</button>
+              :<button onClick={()=>pickCulture(civSheet.sel)} style={{...primaryBtn,width:"100%"}}>{CIVS[civSheet.sel]?`${civSheet.seat!=null?"Use":"Play as"} ${CIVS[civSheet.sel].name}`:"Go random"}</button>}</div>
+        </div></div>;
   useEffect(()=>{
     let alive=true;
     PETRI_SUPABASE.auth.getSession().then(({data})=>{if(alive){setAuthUser(data.session?.user||null);setAuthReady(true);}});
@@ -4433,26 +4469,7 @@ function App(){
           <label style={{fontFamily:T.mono,fontSize:10,color:T.muted}}>TEAMS<select disabled={!lobbyHost} value={cfg.teams?"on":"off"} onChange={e=>setLobbyOpt({teams:e.target.value==="on"})} style={sel}><option value="off">Free for all</option><option value="on">2v2 · 1+3 vs 2+4</option></select></label></div>
         <div style={{fontSize:10,color:T.muted,marginTop:9,lineHeight:1.45}}>{lobbyHost?"Every Open seat needs a player, or switch it to Bot or Vacant, before you can start. ":"The host sets the seats and rules. "}Powers and events are off. Anyone who leaves mid-game is replaced by a Petri bot.</div>
         <div style={{display:"flex",gap:7,marginTop:12,flexWrap:"wrap"}}>{lobbyHost?<button onClick={startCodeMatch} style={{...primaryBtn,flex:mob?"1 1 0":"0 0 auto"}}>Start match</button>:<span style={{alignSelf:"center",flex:mob?"1 1 0":"0 0 auto",fontFamily:T.mono,fontSize:11,color:T.muted}}>Waiting for the host to start…</span>}<button onClick={()=>setCodeLobby(null)} style={ghostBtn}>Leave</button></div></div>;})()}
-      {civSheet!==null&&<div style={{...overlay,alignItems:mob?"flex-end":"center",padding:mob?0:16}} onClick={()=>setCivSheet(null)}>
-        <div onClick={e=>e.stopPropagation()} style={{...card,padding:0,width:mob?"100%":"min(500px,100%)",maxHeight:mob?"86vh":"80vh",display:"flex",flexDirection:"column",borderRadius:mob?"16px 16px 0 0":10,overflow:"hidden"}}>
-          <div style={{padding:"14px 15px 10px",borderBottom:`1px solid ${T.line}`}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}><b style={{fontFamily:T.display,fontSize:18,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{civSheet.view?`${civSheet.who}'s culture`:"Choose your culture"}</b><button onClick={()=>setCivSheet(null)} style={ghostBtn}>close</button></div>
-            <div style={{fontSize:11,color:T.muted,marginTop:3,lineHeight:1.4}}>{civSheet.view?"What they're bringing to the dish.":"Tap a culture to read its ability, then confirm below."}{lobbyCfg&&lobbyCfg.traits===false?" Culture traits are OFF in this lobby, so abilities won't be active.":""}</div></div>
-          <div className="petri-thin" style={{overflowY:"auto",padding:"10px 12px",display:"grid",gap:6}}>
-            {(civSheet.view?[civSheet.sel]:["random",...CIV_IDS]).map(id=>{const c=CIVS[id],col=c?c.color:T.muted,on=civSheet.sel===id,cap=t=>t.charAt(0).toUpperCase()+t.slice(1);
-              return <button key={id} onClick={()=>{if(!civSheet.view)setCivSheet({sel:id});}} style={{textAlign:"left",padding:"9px 11px",borderRadius:8,border:`1px solid ${on?col:T.line}`,background:on?shade(col,-.8):T.cell,cursor:"pointer",width:"100%"}}>
-                <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}>
-                  <span style={{width:11,height:11,borderRadius:3,flexShrink:0,background:col}}/>
-                  <b style={{fontSize:13,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c?c.name:"Random culture"}</b>
-                  {!civSheet.view&&myCiv===id&&<span style={{fontFamily:T.mono,fontSize:9,color:T.accent,flexShrink:0}}>CURRENT</span>}
-                  <span style={{fontFamily:T.mono,fontSize:10,color:col,flexShrink:0,maxWidth:"45%",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c?TRAIT[id][0]:"Surprise"}</span></div>
-                {on&&<div style={{fontSize:12,color:T.muted,lineHeight:1.5,marginTop:7}}>{c?<><span style={{color:T.ink}}>{c.region}.</span> {cap(TRAIT[id][1])}.</>:civSheet.view?"They're going random. A culture is drawn when the match starts.":"A culture is drawn for you when the match starts."}</div>}
-              </button>;})}
-          </div>
-          <div style={{padding:"10px 12px calc(12px + env(safe-area-inset-bottom))",borderTop:`1px solid ${T.line}`}}>
-            {civSheet.view?<button onClick={()=>setCivSheet(null)} style={{...miniBtn,width:"100%",padding:"11px 12px"}}>Got it</button>
-              :<button onClick={()=>{setMyCiv(civSheet.sel);setCivSheet(null);}} style={{...primaryBtn,width:"100%"}}>{CIVS[civSheet.sel]?`Play as ${CIVS[civSheet.sel].name}`:"Go random"}</button>}</div>
-        </div></div>}
+      {civSheetModal}
       {codeNotice&&<div style={overlay} onClick={()=>setCodeNotice(null)}><div onClick={e=>e.stopPropagation()} style={{...card,padding:"22px 24px",maxWidth:360,width:"100%",textAlign:"center"}}>
         <div style={{fontFamily:T.display,fontSize:20,fontWeight:600,marginBottom:6}}>{codeNotice.title}</div>
         <div style={{fontSize:13,color:T.muted,lineHeight:1.5,marginBottom:16}}>{codeNotice.msg}</div>
@@ -4538,25 +4555,30 @@ function App(){
         </div>}
       </div>
       <div style={{display:"grid",gap:10}}>
-        {Array.from({length:count}).map((_,i)=>{const st=seats[i];const dup=seats.slice(0,i).filter(x=>x.civ===st.civ).length;
-          const col=dup?shade(CIVS[st.civ].color,dup===1?-0.32:dup===2?0.32:-0.55):CIVS[st.civ].color;
+        {Array.from({length:count}).map((_,i)=>{const st=seats[i],rnd=!!st.randCiv;const dup=rnd?0:seats.slice(0,i).filter(x=>!x.randCiv&&x.civ===st.civ).length;
+          const col=rnd?T.muted:dup?shade(CIVS[st.civ].color,dup===1?-0.32:dup===2?0.32:-0.55):CIVS[st.civ].color;
           return(<div key={i} style={{...card,padding:"12px 14px"}}>
             <div style={{display:"flex",gap:7,alignItems:"center",flexWrap:"wrap"}}>
               <span style={{width:20,height:20,borderRadius:5,background:col,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,color:"#0008"}}>{dup?GLYPHS[i%4]:""}</span>
               <b style={{minWidth:44,fontFamily:T.mono,fontSize:12}}>SEAT {i+1}</b>
                <Drop id={i+":kind"} value={st.kind} width={86} opts={[{v:"human",label:"Human"},{v:"cpu",label:"CPU"}]} onPick={v=>upd(i,v==="cpu"?{kind:v,botMmr:st.botMmr==null?1000:st.botMmr,brain:botTierFor(st.botMmr==null?1000:st.botMmr).brain}:{kind:v})}/>
-              <Drop id={i+":civ"} value={st.civ} width={118} menuW={190} opts={CIV_IDS.map(id=>({v:id,label:CIVS[id].name,sub:TRAIT[id][0],dot:CIVS[id].color}))} onPick={v=>upd(i,{civ:v})}/>
+              <button onClick={()=>setCivSheet({sel:rnd?"random":st.civ,seat:i})} title="Choose a culture" style={{...inputSm,cursor:"pointer",display:"flex",alignItems:"center",gap:6,textAlign:"left",width:118}}>
+                <span style={{width:9,height:9,borderRadius:2,flexShrink:0,background:col}}/>
+                <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{rnd?"Random":CIVS[st.civ].name}</span>
+                <span style={{color:T.muted,fontSize:10,flexShrink:0}}>▸</span></button>
                {st.kind==="cpu"&&<Drop id={i+":brain"} value={st.botMmr==null?1000:st.botMmr} width={150} menuW={205} opts={BOT_LEVELS.map(x=>({v:x.mmr,label:x.label,sub:x.sub}))} onPick={v=>upd(i,{botMmr:v,brain:botTierFor(v).brain})}/>}
               {opts.powers&&<Drop id={i+":power"} value={st.power} width={104} menuW={180} opts={POWER_IDS.map(pw2=>({v:pw2,label:POWERS[pw2].name,sub:POWERS[pw2].trigger}))} onPick={v=>upd(i,{power:v})}/>}
               {teamMode&&<Drop id={i+":team"} value={st.team||0} width={96} menuW={120} opts={[{v:0,label:"Team —"},{v:1,label:"Team 1",dot:TEAM_PASTEL[1]},{v:2,label:"Team 2",dot:TEAM_PASTEL[2]},{v:3,label:"Team 3",dot:TEAM_PASTEL[3]}]} onPick={v=>upd(i,{team:v})}/>}
             </div>
             {(opts.powers||opts.traits)&&<div style={{fontSize:12,marginTop:8,fontFamily:T.mono,lineHeight:1.6}}>
               {opts.powers&&<div style={{color:T.accent}}>◈ POWER, {POWERS[st.power].name} ({POWERS[st.power].charges} use{POWERS[st.power].charges>1?"s":""}): <span style={{color:T.muted}}>{POWERS[st.power].effect}</span></div>}
-              {opts.traits&&<div style={{color:col}}>✦ {CIVS[st.civ].name.toUpperCase()} TRAIT, <span style={{color:T.muted}}>{TRAIT[st.civ][0]}: {TRAIT[st.civ][1]}</span></div>}</div>}
+              {opts.traits&&(rnd?<div style={{color:col}}>✦ RANDOM CULTURE, <span style={{color:T.muted}}>a culture and its trait are drawn when the game starts.</span></div>
+                :<div style={{color:col}}>✦ {CIVS[st.civ].name.toUpperCase()} · {CIVS[st.civ].region.toUpperCase()}, <span style={{color:T.muted}}>{TRAIT[st.civ][0]}: {TRAIT[st.civ][1]}</span></div>)}</div>}
             {st.kind==="cpu"&&(()=>{const a=botTierFor(st.botMmr==null?1000:st.botMmr);return <div style={{fontSize:12,color:T.muted,marginTop:6}}><b style={{color:rankOf(st.botMmr==null?1000:st.botMmr).color}}>{a.label}</b> · {a.mistake?Math.round(a.mistake*100)+"% imperfect-choice rate":"full-strength evaluation"} · looks across {a.cap} candidate placements</div>;})()}
           </div>);})}
       </div>
       <button onClick={()=>{setCodeMatchActive(false);setDaily(null);setDailyInfo(null);startGame();}} style={{...primaryBtn,marginTop:18,...(mob?{width:"100%",padding:"15px 22px",fontSize:14}:{})}}>Begin →</button>
+      {civSheetModal}
     </Shell>);}
 
   // A seat's clock as it stands right now, plus the styling that warns you when
