@@ -86,26 +86,26 @@ const GLYPHS = ["●","▲","■","◆"];
 const cornersFor = N => [[0,0],[N-1,N-1],[0,N-1],[N-1,0]];
 
 const CIVS = {
-  kyrgyzstan:{name:"Kyrgyzstan",region:"Central Asia",color:"#D64B2A"},
-  botswana:{name:"Botswana",region:"Southern Africa",color:"#46BBD9"},
-  lithuania:{name:"Lithuania",region:"Baltic Europe",color:"#E0A92E"},
-  guatemala:{name:"Guatemala",region:"Central America",color:"#1AA086"},
-  colombia:{name:"Colombia",region:"South America",color:"#2E6FB0"},
-  new_zealand:{name:"New Zealand",region:"Polynesia",color:"#C13B62"},
-  malta:{name:"Malta",region:"Mediterranean",color:"#BF9130"},
-  dominican:{name:"Dominican Republic",region:"Caribbean",color:"#D45A9A"},
-  senegal:{name:"Senegal",region:"West Africa",color:"#9DB833"},
-  chile:{name:"Chile",region:"South America",color:"#3E93C9"},
-  morocco:{name:"Morocco",region:"North Africa",color:"#C4322B"},
-  brazil:{name:"Brazil",region:"South America",color:"#F2C517"},
-  mexico:{name:"Mexico",region:"North America",color:"#157A44"},
+  kyrgyzstan:{name:"Kyrgyzstan",region:"The Tian Shan",color:"#D64B2A"},
+  botswana:{name:"Botswana",region:"The Kalahari",color:"#46BBD9"},
+  lithuania:{name:"Lithuania",region:"The Baltic Shore",color:"#E0A92E"},
+  guatemala:{name:"Guatemala",region:"The Maya Highlands",color:"#1AA086"},
+  colombia:{name:"Colombia",region:"The Andes",color:"#2E6FB0"},
+  new_zealand:{name:"New Zealand",region:"The Southern Alps",color:"#C13B62"},
+  malta:{name:"Malta",region:"Heart of the Mediterranean",color:"#BF9130"},
+  dominican:{name:"Dominican Republic",region:"Hispaniola",color:"#D45A9A"},
+  senegal:{name:"Senegal",region:"The Sahel",color:"#9DB833"},
+  chile:{name:"Chile",region:"The Atacama",color:"#3E93C9"},
+  morocco:{name:"Morocco",region:"The Atlas Mountains",color:"#C4322B"},
+  brazil:{name:"Brazil",region:"The Amazon",color:"#F2C517"},
+  mexico:{name:"Mexico",region:"Lake Texcoco",color:"#157A44"},
   nepal:{name:"Nepal",region:"The Himalaya",color:"#9C2B44"},
-  netherlands:{name:"Netherlands",region:"Northern Europe",color:"#EA7A26"},
-  usa:{name:"USA",region:"North America",color:"#1F3A93"},
-  spain:{name:"Spain",region:"Southern Europe",color:"#FF1E3C"},
-  nicaragua:{name:"Nicaragua",region:"Central America",color:"#EDF2F7"},
-  kenya:{name:"Kenya",region:"East Africa",color:"#3FBF5F"},
-  lebanon:{name:"Lebanon",region:"West Asia",color:"#8B3FD9"},
+  netherlands:{name:"Netherlands",region:"The Rhine Delta",color:"#EA7A26"},
+  usa:{name:"USA",region:"The Mississippi",color:"#1F3A93"},
+  spain:{name:"Spain",region:"The Pyrenees",color:"#FF1E3C"},
+  nicaragua:{name:"Nicaragua",region:"The Ring of Fire",color:"#EDF2F7"},
+  kenya:{name:"Kenya",region:"The Great Rift Valley",color:"#3FBF5F"},
+  lebanon:{name:"Lebanon",region:"Mount Lebanon",color:"#8B3FD9"},
 };
 const CIV_IDS = Object.keys(CIVS);
 const TRAIT = {
@@ -2233,6 +2233,10 @@ const CHALLENGES=[
   {id:"streak_50",name:"Gram Stain Style",desc:"Win 50 ranked games in a row.",test:s=>rankedBestStreak(s)>=50,prog:s=>[Math.min(rankedBestStreak(s),50),50]}
 ];
 const challengeDone=(s,c)=>!!c&&(s.unlocked.includes(c.id)||c.test(s));
+// Flavour lines for the achievement popup, in the same spirit as the win/lose lines.
+const UNLOCK_LINES=["Somewhere, a microbiologist just slow-clapped.","Culture: cultivated. Put it on the fridge.",
+  "The petri gods have noticed you.","Bacteria everywhere are jealous right now.","Certified growth. No lab coat required.",
+  "The dish will remember this one.","Your colony's mom would be proud. Probably.","That's going in the lab notebook."];
 // Cosmetics not listed here are free from the start.
 // Board themes are always free — they're readability/comfort settings, not rewards.
 // Piece textures are the unlockable cosmetic track.
@@ -2755,7 +2759,9 @@ function App(){
   const [codeNotice,setCodeNotice]=useState(null);   // popup on the online screen: {title,msg,joinCode?}
   const [goneIds,setGoneIds]=useState(()=>new Set()); // tabs that explicitly left this match (no rejoining)
   const [myCiv,setMyCiv]=useState("random");          // culture picked in a private lobby
-  const [civSheet,setCivSheet]=useState(null);        // culture picker popup: highlighted culture id, or null when closed
+  const [civSheet,setCivSheet]=useState(null);        // culture popup: {sel, view?, who?} — view=true just reads another player's pick
+  const [codeCopied,setCodeCopied]=useState(false);   // brief "Copied" state on the lobby code button
+  const [unlockPop,setUnlockPop]=useState(null);      // achievement popup after a game: {list, skins, line}
   const [netBanner,setNetBanner]=useState("");        // in-game notice, e.g. "X left, a bot took over"
   // Private lobby, owned by its host and mirrored to everyone:
   // {host, seats:[{t:"player",id}|{t:"open"}|{t:"bot"}|{t:"vacant"} x4], clock, mapId, traits, teams}
@@ -4015,6 +4021,8 @@ function App(){
       setRankedMatch(r=>({...r,delta:rated[1],newMmr:rated[2].mmr,newRank:rankOf(rated[2].mmr).name}));}
     const [withUnlocks,fresh]=harvestUnlocks(next);
     setSave(writeSave(withUnlocks));
+    // Skins whose lock was satisfied by this game, so the popup can show them off.
+    const freshSkins=Object.keys(TEX_LOCKS).filter(id=>!texGateDone(save,TEX_LOCKS[id])&&texGateDone(withUnlocks,TEX_LOCKS[id]));
     // Guests remain local-only. Signed-in Daily results use the narrow Daily
     // RPC. Solo games and the current bot-filled ranked preview both use the
     // authenticated result function; private matches remain unranked/local.
@@ -4042,7 +4050,7 @@ function App(){
         }}).then(({error})=>{if(error)flash("Saved on this device; cloud result sync will retry later.");});
       }
     }
-    if(fresh.length)setTimeout(()=>flash(`Unlocked: ${fresh.map(c=>c.name).join(" · ")}`),1400);
+    if(fresh.length)setTimeout(()=>setUnlockPop({list:fresh,skins:freshSkins,line:UNLOCK_LINES[Math.floor(Math.random()*UNLOCK_LINES.length)]}),1400);
   },[over]); // eslint-disable-line
   const hoverSet=useMemo(()=>{const m=new Map();if(hover)for(const [r,c] of hover.cells)if(inB(r,c,N,BW))m.set(r+","+c,hover.valid);return m;},[hover,N,BW]);
   const tentSet=useMemo(()=>{const s=new Set();if(tent)for(const [r,c] of tent.cells)s.add(r+","+c);return s;},[tent]);
@@ -4388,7 +4396,10 @@ function App(){
         <div style={{fontSize:10,color:T.muted,marginTop:8,lineHeight:1.45}}>Create makes a new lobby with this code (leave it blank for a random one). Join enters a friend's lobby, or watches their match if it has already started.</div></div>
       :(()=>{const civName=c=>CIVS[c]?CIVS[c].name:"Random culture",sel={...input,width:"100%",marginTop:4},cfg=lobbyCfg,amSeated=seatedIds.has(tabId);
         const SEAT_LABEL={open:"Open seat",bot:"Petri bot · random culture",vacant:"Vacant · not playing"};
-        const head=<div style={{display:"flex",justifyContent:"space-between",alignItems:"start",gap:10,flexWrap:"wrap"}}><div style={{minWidth:0,maxWidth:"100%"}}><div style={{fontFamily:T.mono,fontSize:10,color:T.accent,letterSpacing:1.5}}>LOBBY CODE</div><div style={{fontFamily:T.display,fontSize:mob?22:28,fontWeight:600,letterSpacing:mob?1:2,overflowWrap:"anywhere"}}>{codeLobby.code}</div></div><span style={{fontFamily:T.mono,fontSize:10,color:lobbyHost?T.accent:T.muted}}>{codeLobby.spectate?"SPECTATING":lobbyHost?"YOU ARE HOST":amSeated?"WAITING FOR HOST":"WATCHING"}</span></div>;
+        const head=<div style={{display:"flex",justifyContent:"space-between",alignItems:"start",gap:10,flexWrap:"wrap"}}><div style={{minWidth:0,maxWidth:"100%"}}><div style={{fontFamily:T.mono,fontSize:10,color:T.accent,letterSpacing:1.5}}>LOBBY CODE</div><div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}><div style={{fontFamily:T.display,fontSize:mob?22:28,fontWeight:600,letterSpacing:mob?1:2,overflowWrap:"anywhere",minWidth:0}}>{codeLobby.code}</div>
+          <button onClick={()=>{const done=()=>{setCodeCopied(true);setTimeout(()=>setCodeCopied(false),1600);};
+            try{navigator.clipboard.writeText(codeLobby.code).then(done,()=>flash("Couldn't copy. Long-press the code instead."));}catch(e){flash("Couldn't copy. Long-press the code instead.");}}}
+            style={{...ghostBtn,padding:"5px 10px",fontSize:10,borderColor:codeCopied?"#75c39a":T.line,color:codeCopied?"#75c39a":T.muted}}>{codeCopied?"✓ Copied":"⧉ Copy"}</button></div></div><span style={{fontFamily:T.mono,fontSize:10,color:lobbyHost?T.accent:T.muted}}>{codeLobby.spectate?"SPECTATING":lobbyHost?"YOU ARE HOST":amSeated?"WAITING FOR HOST":"WATCHING"}</span></div>;
         if(codeLobby.spectate||!cfg)return <div style={{...card,padding:16,borderColor:T.accent}}>{head}
           <div style={{fontSize:12,color:T.muted,margin:"10px 0 12px"}}>{codeLobby.spectate?"This match is already live. Loading the board so you can watch…":"Connecting to the lobby…"}</div>
           <button onClick={()=>setCodeLobby(null)} style={ghostBtn}>Leave</button></div>;
@@ -4402,10 +4413,11 @@ function App(){
               <span style={{color:T.muted,flexShrink:0}}>{i+1}</span>
               {s.t==="player"&&<span style={{width:9,height:9,borderRadius:2,flexShrink:0,background:CIVS[civ]?CIVS[civ].color:T.muted}}/>}
               <span style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:s.t==="player"?T.ink:T.muted}}>{s.t==="player"?`${peerName(s.id)}${me?" (you)":""}${s.id===effHost?" · host":""}`:SEAT_LABEL[s.t]}</span>
-              {s.t==="player"&&!me&&<span style={{color:"#75c39a",flexShrink:0,fontSize:10,maxWidth:"45%",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{civName(civ)}</span>}
+              {s.t==="player"&&!me&&<button onClick={()=>setCivSheet({sel:civ,view:true,who:peerName(s.id)})} title="Read this culture's ability" style={{flexShrink:0,maxWidth:"48%",display:"flex",alignItems:"center",gap:4,padding:"3px 7px",borderRadius:6,border:`1px solid ${T.line}`,background:"transparent",cursor:"pointer",fontFamily:T.mono,fontSize:10,color:"#75c39a"}}>
+                <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{civName(civ)}</span><span style={{color:T.muted}}>ⓘ</span></button>}
             </div>
             {(me||s.t==="open"||typeBtns)&&<div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center",marginTop:8}}>
-              {me&&<><button onClick={()=>setCivSheet(myCiv)} style={{...miniBtn,flex:"1 1 170px",minWidth:0,display:"flex",alignItems:"center",gap:7,padding:"8px 10px",textAlign:"left"}}>
+              {me&&<><button onClick={()=>setCivSheet({sel:myCiv})} style={{...miniBtn,flex:"1 1 170px",minWidth:0,display:"flex",alignItems:"center",gap:7,padding:"8px 10px",textAlign:"left"}}>
                   <span style={{width:10,height:10,borderRadius:2,flexShrink:0,background:CIVS[myCiv]?CIVS[myCiv].color:T.muted}}/>
                   <span style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{CIVS[myCiv]?`${CIVS[myCiv].name} · ${TRAIT[myCiv][0]}`:"Random culture"}</span>
                   <span style={{color:T.accent,fontSize:10,flexShrink:0}}>change ▸</span></button>
@@ -4424,21 +4436,22 @@ function App(){
       {civSheet!==null&&<div style={{...overlay,alignItems:mob?"flex-end":"center",padding:mob?0:16}} onClick={()=>setCivSheet(null)}>
         <div onClick={e=>e.stopPropagation()} style={{...card,padding:0,width:mob?"100%":"min(500px,100%)",maxHeight:mob?"86vh":"80vh",display:"flex",flexDirection:"column",borderRadius:mob?"16px 16px 0 0":10,overflow:"hidden"}}>
           <div style={{padding:"14px 15px 10px",borderBottom:`1px solid ${T.line}`}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}><b style={{fontFamily:T.display,fontSize:18}}>Choose your culture</b><button onClick={()=>setCivSheet(null)} style={ghostBtn}>close</button></div>
-            <div style={{fontSize:11,color:T.muted,marginTop:3,lineHeight:1.4}}>Tap a culture to read its ability, then confirm below.{lobbyCfg&&lobbyCfg.traits===false?" Culture traits are OFF in this lobby, so abilities won't be active.":""}</div></div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}><b style={{fontFamily:T.display,fontSize:18,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{civSheet.view?`${civSheet.who}'s culture`:"Choose your culture"}</b><button onClick={()=>setCivSheet(null)} style={ghostBtn}>close</button></div>
+            <div style={{fontSize:11,color:T.muted,marginTop:3,lineHeight:1.4}}>{civSheet.view?"What they're bringing to the dish.":"Tap a culture to read its ability, then confirm below."}{lobbyCfg&&lobbyCfg.traits===false?" Culture traits are OFF in this lobby, so abilities won't be active.":""}</div></div>
           <div className="petri-thin" style={{overflowY:"auto",padding:"10px 12px",display:"grid",gap:6}}>
-            {["random",...CIV_IDS].map(id=>{const c=CIVS[id],col=c?c.color:T.muted,on=civSheet===id,cap=t=>t.charAt(0).toUpperCase()+t.slice(1);
-              return <button key={id} onClick={()=>setCivSheet(id)} style={{textAlign:"left",padding:"9px 11px",borderRadius:8,border:`1px solid ${on?col:T.line}`,background:on?shade(col,-.8):T.cell,cursor:"pointer",width:"100%"}}>
+            {(civSheet.view?[civSheet.sel]:["random",...CIV_IDS]).map(id=>{const c=CIVS[id],col=c?c.color:T.muted,on=civSheet.sel===id,cap=t=>t.charAt(0).toUpperCase()+t.slice(1);
+              return <button key={id} onClick={()=>{if(!civSheet.view)setCivSheet({sel:id});}} style={{textAlign:"left",padding:"9px 11px",borderRadius:8,border:`1px solid ${on?col:T.line}`,background:on?shade(col,-.8):T.cell,cursor:"pointer",width:"100%"}}>
                 <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}>
                   <span style={{width:11,height:11,borderRadius:3,flexShrink:0,background:col}}/>
                   <b style={{fontSize:13,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c?c.name:"Random culture"}</b>
-                  {myCiv===id&&<span style={{fontFamily:T.mono,fontSize:9,color:T.accent,flexShrink:0}}>CURRENT</span>}
+                  {!civSheet.view&&myCiv===id&&<span style={{fontFamily:T.mono,fontSize:9,color:T.accent,flexShrink:0}}>CURRENT</span>}
                   <span style={{fontFamily:T.mono,fontSize:10,color:col,flexShrink:0,maxWidth:"45%",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c?TRAIT[id][0]:"Surprise"}</span></div>
-                {on&&<div style={{fontSize:12,color:T.muted,lineHeight:1.5,marginTop:7}}>{c?<><span style={{color:T.ink}}>{c.region}.</span> {cap(TRAIT[id][1])}.</>:"A culture is drawn for you when the match starts."}</div>}
+                {on&&<div style={{fontSize:12,color:T.muted,lineHeight:1.5,marginTop:7}}>{c?<><span style={{color:T.ink}}>{c.region}.</span> {cap(TRAIT[id][1])}.</>:civSheet.view?"They're going random. A culture is drawn when the match starts.":"A culture is drawn for you when the match starts."}</div>}
               </button>;})}
           </div>
           <div style={{padding:"10px 12px calc(12px + env(safe-area-inset-bottom))",borderTop:`1px solid ${T.line}`}}>
-            <button onClick={()=>{setMyCiv(civSheet);setCivSheet(null);}} style={{...primaryBtn,width:"100%"}}>{CIVS[civSheet]?`Play as ${CIVS[civSheet].name}`:"Go random"}</button></div>
+            {civSheet.view?<button onClick={()=>setCivSheet(null)} style={{...miniBtn,width:"100%",padding:"11px 12px"}}>Got it</button>
+              :<button onClick={()=>{setMyCiv(civSheet.sel);setCivSheet(null);}} style={{...primaryBtn,width:"100%"}}>{CIVS[civSheet.sel]?`Play as ${CIVS[civSheet.sel].name}`:"Go random"}</button>}</div>
         </div></div>}
       {codeNotice&&<div style={overlay} onClick={()=>setCodeNotice(null)}><div onClick={e=>e.stopPropagation()} style={{...card,padding:"22px 24px",maxWidth:360,width:"100%",textAlign:"center"}}>
         <div style={{fontFamily:T.display,fontSize:20,fontWeight:600,marginBottom:6}}>{codeNotice.title}</div>
@@ -4928,6 +4941,19 @@ function App(){
           <div style={{fontSize:10,color:T.muted}}>{rankedMatch.mode.toUpperCase()} RATING</div><div style={{fontSize:20,fontWeight:500,color:rankedMatch.delta>=0?"#75c39a":"#ef7e88"}}>{rankedMatch.delta>=0?"+":""}{rankedMatch.delta} <span style={{fontSize:14,color:T.ink}}>→ {rankedMatch.newMmr}</span></div><div style={{fontSize:10,color:T.muted}}>{rankedMatch.newRank}</div></div>}
         <div style={{display:"flex",gap:8,justifyContent:"center"}}>{rankedMatch?<button onClick={()=>{setRankedMatch(null);setQueue(null);setScreen("online");}} style={primaryBtn}>Ranked lobby</button>:net&&!amActingHost()?<span style={{alignSelf:"center",fontFamily:T.mono,fontSize:11,color:T.muted}}>Waiting for the host…</span>:net?<><button onClick={hostBackToLobby} style={primaryBtn}>Back to lobby</button><button onClick={startGame} style={{...miniBtn,padding:"11px 18px"}}>Rematch</button></>:<button onClick={startGame} style={primaryBtn}>Play again</button>}<button onClick={()=>{if(net)sendLeave();setNet(null);setDaily(null);setDailyInfo(null);setRankedMatch(null);setScreen("home");}} style={{...miniBtn,padding:"11px 18px"}}>Main menu</button></div>
       </div></div>;})()}
+    {unlockPop&&<div style={{...overlay,zIndex:70}} onClick={()=>setUnlockPop(null)}><div onClick={e=>e.stopPropagation()} className="petri-thin" style={{...card,padding:"24px 24px 20px",maxWidth:380,width:"100%",maxHeight:"80vh",overflowY:"auto",textAlign:"center",borderColor:"#f3d36b",boxShadow:"0 0 40px rgba(243,211,107,.3)"}}>
+      <div style={{fontFamily:T.mono,fontSize:10,color:"#f3d36b",letterSpacing:2}}>{unlockPop.list.length>1?`${unlockPop.list.length} ACHIEVEMENTS UNLOCKED`:"ACHIEVEMENT UNLOCKED"}</div>
+      <div style={{display:"grid",gap:9,margin:"14px 0"}}>{unlockPop.list.map(c=><div key={c.id}>
+        <div style={{fontFamily:T.display,fontSize:22,fontWeight:600,lineHeight:1.2}}>{c.name}</div>
+        <div style={{fontSize:12,color:T.muted,marginTop:2}}>{c.desc}</div></div>)}</div>
+      {unlockPop.skins.length>0&&<div style={{margin:"0 0 14px"}}>
+        <div style={{fontFamily:T.mono,fontSize:10,color:T.muted,letterSpacing:1.5,marginBottom:7}}>NEW {unlockPop.skins.length>1?"SKINS":"SKIN"}</div>
+        <div style={{display:"flex",gap:7,justifyContent:"center",flexWrap:"wrap"}}>{unlockPop.skins.map(id=>{const demo=tileAt(pieceCellStyle(colorOf(seatsN.find(s=>isMine(s))||1),id,BT.cell),0,0);
+          return <span key={id} style={{display:"flex",alignItems:"center",gap:6,padding:"5px 9px",borderRadius:8,border:`1px solid ${T.line}`,background:T.cell}}>
+            <span style={{width:18,height:18,borderRadius:4,flexShrink:0,...demo}}/><span style={{fontFamily:T.mono,fontSize:11}}>{PIECE_TEX[id]}</span></span>;})}</div></div>}
+      <div style={{fontSize:13,color:T.ink,fontStyle:"italic",marginBottom:16}}>{unlockPop.line}</div>
+      <button onClick={()=>setUnlockPop(null)} style={{...primaryBtn,width:"100%"}}>Nice</button>
+    </div></div>}
   </Shell>);
 }
 
